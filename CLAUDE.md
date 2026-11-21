@@ -1,4 +1,4 @@
-# eeiriee
+# WoW: Hantō
 
 Browser game client. Vite + TypeScript + Pixi.js (`pixi.js` is the only runtime dependency).
 
@@ -9,9 +9,11 @@ Browser game client. Vite + TypeScript + Pixi.js (`pixi.js` is the only runtime 
 - `npm run lint`: eslint
 - `npm run build`: Vite build into `dist`
 - `npm run preview`: serve the `dist` build locally
-- `npm run check`: `typecheck`, `lint`, and `build` in sequence
+- `npm run test`: all vitest tests
+- `npm run test:fast`: vitest, skipping tests whose name contains `@slow`
+- `npm run check`: `typecheck`, `lint`, `test:fast`, and `build` in sequence
 
-If `node_modules` is missing, install with `npm ci`. Run `npm run check` (`typecheck`, `lint`, and `build`) before every push (`build` is `vite build`, which doesn't typecheck, and it's what Netlify runs). If they can't run (no network for installs), say so in the report instead of skipping silently.
+If `node_modules` is missing, install with `npm ci`. Run `npm run check` (`typecheck`, `lint`, `test:fast`, and `build`) before every push (`build` is `vite build`, which doesn't typecheck, and it's what Netlify runs). If they can't run (no network for installs), say so in the report instead of skipping silently.
 
 ## Testing
 
@@ -53,16 +55,16 @@ If `node_modules` is missing, install with `npm ci`. Run `npm run check` (`typec
 
 ## Netlify
 
-- Site: `eeiriee`. Config lives in `netlify.toml` (build `npm run build`, publish `dist`, Node 22).
-- Deploys go through PRs: branch deploys are not enabled, so only PRs get a preview. There is no `https://<branch>--eeiriee.netlify.app` link.
-- PR preview: `https://deploy-preview-<pr-number>--eeiriee.netlify.app`
-- Production (builds from `main`): `https://eeiriee.netlify.app`
+- Site: `mini-three`. Config lives in `netlify.toml` (build `npm run build`, publish `dist`, Node 22).
+- Deploys go through PRs: branch deploys are not enabled, so only PRs get a preview. There is no `https://<branch>--mini-three.netlify.app` link.
+- PR preview: `https://deploy-preview-<pr-number>--mini-three.netlify.app`
+- Production (builds from `main`): `https://mini-three.netlify.app`
 - Start every answer with a header: the task name and the PR preview link of the current branch's PR, then the GitHub PR link, then a horizontal rule. The task name is the branch name without `cl-`, in title case. With a working branch but no open PR yet, use the production link and omit the PR line. With no working branch, use the production link. Nothing else in the header: no notes on build status.
 
   ```md
-  Auto Delete Branches: https://deploy-preview-3--eeiriee.netlify.app
+  Auto Delete Branches: https://deploy-preview-3--mini-three.netlify.app
 
-  PR: https://github.com/stefanhacks/eeiriee/pull/3
+  PR: https://github.com/stefanhacks/mini-three/pull/3
 
   ---
   ```
