@@ -267,11 +267,14 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   }
 
   const back = button(kit, "Back", BACK_WIDTH, () => store.set({ detailOpen: false }), 22);
+  // Always in the tree, hidden on desktop: a button left outside it is never destroyed with the popup, and its
+  // caption's listener on the shared text style would keep every rebuilt desktop popup alive.
+  win.addChild(at(back.view, BACK_X, (FRAME_TITLE_HEIGHT - 22) / 2));
+  back.view.visible = false;
   if (mobile) {
     const chevron = iconSprite(kit.icons.chevronRight, 13, 11, PALETTE.text.header);
     chevron.scale.x = -1;
     back.view.addChild(chevron);
-    win.addChild(at(back.view, BACK_X, (FRAME_TITLE_HEIGHT - 22) / 2));
   }
 
   const tabPressed = (key: ProfessionKey) => store.set({ active: key, selection: null, detailOpen: false,
