@@ -62,6 +62,27 @@ export default tseslint.config(
     },
   },
   {
+    // Node scripts and their tests: plain JS, no type information.
+    files: ["scripts/**/*.mjs"],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      globals: { console: "readonly", fetch: "readonly", process: "readonly" },
+    },
+    rules: {
+      ...tseslint.configs.disableTypeChecked.rules,
+      "comma-dangle": ["error", "always-multiline"],
+      "eol-last": ["error", "always"],
+      indent: ["error", 2],
+      "max-len": ["error", { code: 120 }],
+      semi: ["error", "always"],
+      quotes: ["error", "double", { avoidEscape: true }],
+      eqeqeq: ["error", "always"],
+      curly: ["error", "all"],
+      "no-var": "error",
+      "prefer-const": "error",
+    },
+  },
+  {
     files: ["eslint.config.mjs"],
     ...tseslint.configs.disableTypeChecked,
   },

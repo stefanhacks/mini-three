@@ -10,12 +10,13 @@
   },
   "scripts": {
     "dev": "vite",
+    "data": "node scripts/build-data.mjs",
     "typecheck": "tsc",
     "lint": "eslint .",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run --passWithNoTests",
-    "test:fast": "vitest run --passWithNoTests -t \"^(?!.*@slow)\"",
+    "test": "vitest run",
+    "test:fast": "vitest run -t \"^(?!.*@slow)\"",
     "check": "npm run typecheck && npm run lint && npm run test:fast && npm run build"
   },
   "dependencies": {
