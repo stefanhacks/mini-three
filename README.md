@@ -1,4 +1,4 @@
-# eeiriee
+# WoW: Hantō
 
 Browser game client built with Vite, TypeScript and Pixi.js (the only runtime dependency).
 
@@ -15,7 +15,9 @@ Node 22 (see `.nvmrc`).
 | `npm run preview` | Serve the `dist` build locally |
 | `npm run typecheck` | `tsc` |
 | `npm run lint` | ESLint |
-| `npm run check` | Typecheck, lint and build, in that order |
+| `npm run test` | All Vitest tests |
+| `npm run test:fast` | Vitest, skipping tests tagged `@slow` |
+| `npm run check` | Typecheck, lint, fast tests and build, in that order |
 
 ## Deploys
 
