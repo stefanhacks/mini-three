@@ -99,11 +99,17 @@ const layout = (width: number, height: number) => {
   const keyboard = next === "mobile" && mode === "mobile" && width === built.width
     && document.activeElement === notesField.element;
   if (next !== mode || (next === "mobile" && !keyboard && (width !== built.width || height !== built.height))) {
+    const modeChanged = next !== mode;
     mode = next;
     build(width, height);
+    if (modeChanged) {
+      backHistory.layoutChanged();
+    }
   }
   place(width, height);
 };
+// Before the first layout: a mode change during it reports to the back-gesture history.
+const backHistory = syncBackHistory(store, () => mode === "mobile");
 app.renderer.on("resize", layout);
 layout(app.screen.width, app.screen.height);
 // A resize skipped while typing is applied once the field lets go.
@@ -115,13 +121,19 @@ store.subscribe((state, previous) => {
     app.ticker.addOnce(() => build(app.screen.width, app.screen.height));
   }
 });
-syncBackHistory(store, () => mode === "mobile");
 
 // Clicking outside the window, or pressing B, cycles the background scene.
 app.stage.eventMode = "static";
 app.stage.hitArea = app.screen;
+// A drag that starts on the list and ends outside the popup also taps the stage (their common ancestor), so only a
+// press that began outside counts.
+let pressedOutside = false;
+const outsidePopup = (x: number, y: number) => !!popup && !popup.view.getBounds().containsPoint(x, y);
+app.stage.on("pointerdown", (event) => {
+  pressedOutside = outsidePopup(event.global.x, event.global.y);
+});
 app.stage.on("pointertap", (event) => {
-  if (popup && !popup.view.getBounds().containsPoint(event.global.x, event.global.y)) {
+  if (pressedOutside && outsidePopup(event.global.x, event.global.y)) {
     backdrop.next();
   }
 });

@@ -132,7 +132,9 @@ const downloadTable = async (table) => {
     log(`downloading ${table}`);
     const response = await fetchOk(`https://wago.tools/db2/${table}/csv?build=${BUILD}&useHotfixes=true`);
     await mkdir(path.dirname(file), { recursive: true });
-    await writeFile(file, await response.text());
+    // Write then rename, so an interrupted download never leaves a truncated CSV that later runs trust.
+    await writeFile(`${file}.partial`, await response.text());
+    await rename(`${file}.partial`, file);
   }
   return parseCsv(await readFile(file, "utf8"));
 };

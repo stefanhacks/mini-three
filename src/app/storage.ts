@@ -128,4 +128,10 @@ export const persist = (store: Store) => {
     }
   });
   window.addEventListener("pagehide", flush);
+  // Mobile browsers often background a tab without `pagehide`, then discard it.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      flush();
+    }
+  });
 };

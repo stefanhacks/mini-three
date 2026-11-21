@@ -1,5 +1,5 @@
 import {
-  Container, type FederatedPointerEvent, type FederatedWheelEvent, Graphics, Rectangle, type Ticker,
+  Container, type FederatedPointerEvent, type FederatedWheelEvent, Graphics, Rectangle, type TextStyle, type Ticker,
 } from "pixi.js";
 import { type ArtKit, PALETTE, TEXT_STYLES, createNineSlice, createStoneOverlay } from "../art";
 import { at, iconSprite, label, piece, qualityColor, tinted } from "../widgets";
@@ -37,6 +37,18 @@ interface RowView {
   bind: (row: ListRow | null, selected: boolean) => void;
   row: ListRow | null;
 }
+
+// Item rows are tinted by quality. Styles are shared per quality: `bind` runs for every visible row on every scroll
+// frame, and a fresh TextStyle each time would allocate and re-measure.
+const qualityStyles = new Map<number, TextStyle>();
+const qualityRowStyle = (quality: number): TextStyle => {
+  let style = qualityStyles.get(quality);
+  if (!style) {
+    style = tinted(TEXT_STYLES.row, qualityColor(quality));
+    qualityStyles.set(quality, style);
+  }
+  return style;
+};
 
 const rowKey = (row: ListRow): string => row.kind === "header" ? row.id : row.key;
 
@@ -114,7 +126,7 @@ export const createScrollList = (
         } else {
           const item = itemOf(row.itemId);
           text.text = item.name;
-          text.style = tinted(TEXT_STYLES.row, qualityColor(item.quality));
+          text.style = qualityRowStyle(item.quality);
           side.text = "";
         }
         holder.hitArea = new Rectangle(0, 0, rowWidth, isHeader ? headerH : rowH);

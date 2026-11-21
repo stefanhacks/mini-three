@@ -10,7 +10,7 @@ const isOurEntry = (): boolean => (history.state as { hanto?: string } | null)?.
  * button, tab) pops that entry too, so the history never collects stale entries. `history.back()` is only called
  * while the current entry is the one pushed here, so it can never leave the page. Desktop never pushes.
  */
-export const syncBackHistory = (store: Store, isMobile: () => boolean) => {
+export const syncBackHistory = (store: Store, isMobile: () => boolean): { layoutChanged: () => void } => {
   // A reload keeps the history state, but the pane starts closed: drop the mark so Back can't pop the page.
   if (isOurEntry()) {
     history.replaceState(null, "");
@@ -30,4 +30,12 @@ export const syncBackHistory = (store: Store, isMobile: () => boolean) => {
       history.back();
     }
   });
+  return {
+    // A pane opened on desktop has no entry; when the layout turns mobile with it open, add one.
+    layoutChanged: () => {
+      if (isMobile() && store.get().detailOpen && !isOurEntry()) {
+        history.pushState({ hanto: MARK }, "");
+      }
+    },
+  };
 };

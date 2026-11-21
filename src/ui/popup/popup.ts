@@ -254,11 +254,11 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
 
   const picker = createPicker(kit, g.picker.w, g.picker.h, (chosen) => {
     const { active } = store.get();
-    store.set({
-      chosen,
-      active: active && chosen.includes(active) ? active : chosen[0],
-      view: "list",
-    });
+    const next = active && chosen.includes(active) ? active : chosen[0];
+    // A different profession means the open entry belongs to one no longer shown: clear it.
+    store.set(next === active
+      ? { chosen, active: next, view: "list" }
+      : { chosen, active: next, view: "list", selection: null, detailOpen: false });
   }, ticker);
   win.addChild(at(picker.view, g.picker.x, g.picker.y));
 
