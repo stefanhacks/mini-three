@@ -7,13 +7,15 @@ import { professions } from "./data";
 import { PALETTE, createArtKit, createBackdrop, loadFonts } from "./ui/art";
 import { type LayoutMode, desktopScale, layoutMode } from "./ui/layout";
 import { createNotesField } from "./ui/popup/notesField";
-import { type Popup, TABS_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, createPopup } from "./ui/popup/popup";
+import {
+  MOBILE_BUTTON_HEIGHT, type Popup, TABS_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, createPopup,
+} from "./ui/popup/popup";
 
 const MAX_RESOLUTION = 2;
 // Room for the portrait medallion that pokes out of the top-left corner.
 const CORNER = 16;
-/** Gap between the mobile frame and the screen edges. */
-const MOBILE_MARGIN = 6;
+/** Space around the phone frame, about the height of its buttons, so it reads as a window rather than the page. */
+const MOBILE_MARGIN = MOBILE_BUTTON_HEIGHT;
 const FOOTPRINT = { width: WINDOW_WIDTH + TABS_WIDTH + CORNER, height: WINDOW_HEIGHT + CORNER };
 
 const app = new Application();
@@ -52,32 +54,11 @@ let mode: LayoutMode | null = null;
 let built = { width: 0, height: 0 };
 let popup: Popup | null = null;
 
-/** Replaces the popup with one for the current mode and size, carrying over what the store doesn't hold. */
-const build = (width: number, height: number) => {
-  const carry = popup?.carry();
-  popup?.destroy();
-  built = { width, height };
-  popup = createPopup(kit, store, {
-    ticker: app.ticker,
-    notesField,
-    layout: mode === "mobile"
-      ? { mode, width: width - MOBILE_MARGIN * 2, height: height - MOBILE_MARGIN * 2 }
-      : { mode: "desktop" },
-  }, carry);
-  app.stage.addChild(popup.view);
-};
-
-const layout = (width: number, height: number) => {
-  backdrop.resize(width, height);
-  const next = layoutMode(width, height, FOOTPRINT);
-  // Some phones shrink the window for the on-screen keyboard instead of only the visual viewport. While a note is
-  // being typed, a height-only change is the keyboard: keep the frame and let the keyboard handling lift it.
-  const keyboard = next === "mobile" && mode === "mobile" && width === built.width
-    && document.activeElement === notesField.element;
-  if (next !== mode || (next === "mobile" && !keyboard && (width !== built.width || height !== built.height))) {
-    mode = next;
-    build(width, height);
-  }
+/**
+ * Scales and positions the popup for the current mode. Every build must end here: a popup rebuilt outside a resize
+ * (the mobile tab strip after a picker change) otherwise sits at (0, 0), off its margin.
+ */
+const place = (width: number, height: number) => {
   if (!popup) {
     return;
   }
@@ -92,6 +73,36 @@ const layout = (width: number, height: number) => {
     Math.round((width - FOOTPRINT.width * scale) / 2 + CORNER * scale),
     Math.round((height - FOOTPRINT.height * scale) / 2 + CORNER * scale),
   );
+};
+
+/** Replaces the popup with one for the current mode and size, carrying over what the store doesn't hold. */
+const build = (width: number, height: number) => {
+  const carry = popup?.carry();
+  popup?.destroy();
+  built = { width, height };
+  popup = createPopup(kit, store, {
+    ticker: app.ticker,
+    notesField,
+    layout: mode === "mobile"
+      ? { mode, width: width - MOBILE_MARGIN * 2, height: height - MOBILE_MARGIN * 2 }
+      : { mode: "desktop" },
+  }, carry);
+  app.stage.addChild(popup.view);
+  place(width, height);
+};
+
+const layout = (width: number, height: number) => {
+  backdrop.resize(width, height);
+  const next = layoutMode(width, height, FOOTPRINT);
+  // Some phones shrink the window for the on-screen keyboard instead of only the visual viewport. While a note is
+  // being typed, a height-only change is the keyboard: keep the frame and let the keyboard handling lift it.
+  const keyboard = next === "mobile" && mode === "mobile" && width === built.width
+    && document.activeElement === notesField.element;
+  if (next !== mode || (next === "mobile" && !keyboard && (width !== built.width || height !== built.height))) {
+    mode = next;
+    build(width, height);
+  }
+  place(width, height);
 };
 app.renderer.on("resize", layout);
 layout(app.screen.width, app.screen.height);

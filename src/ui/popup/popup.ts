@@ -32,7 +32,7 @@ const PORTRAIT = 72;
 const MOBILE_PAD = 12;
 const MOBILE_CONTENT_TOP = 42;
 const MOBILE_PORTRAIT_SCALE = 0.66;
-const MOBILE_BUTTON_HEIGHT = 28;
+export const MOBILE_BUTTON_HEIGHT = 28;
 const BACK_X = 48;
 const BACK_WIDTH = 72;
 /** From this frame width, the summary bar fits between Known only and Professions instead of taking its own row. */
