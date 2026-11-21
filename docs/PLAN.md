@@ -8,7 +8,9 @@ WoW: Hantō is a browser look-alike of the World of Warcraft: Forever profession
 - **Each profession tab lists what that profession has:**
   - **Recipes**, grouped by the game's recipe category. Crafting and secondary professions have them, and so do the gathering professions that craft (Mining's smelting, for example).
   - **Gatherables**, listed under the profession that collects them: herbs under Herbalism, ores and stones under Mining, leathers and hides under Skinning, fish under Fishing.
-  - A profession with both, such as Mining, shows both sections.
+  - **Cloth**, which no profession gathers. It is listed under each profession that uses it, such as Tailoring and First Aid.
+  - A profession with both recipes and gatherables, such as Mining, shows both sections.
+- There are no separate Recipes or Gatherables tabs. Profession tabs are the only tabs.
 - Selecting an entry highlights it and fills the right pane:
   - For a recipe: its reagents and quantities.
   - For a gatherable: its details and the recipes that use it.
@@ -21,7 +23,7 @@ WoW: Hantō is a browser look-alike of the World of Warcraft: Forever profession
 ## Decisions
 
 - **Data.** Generated from the Forever client's DB2 tables, exported by [wago.tools](https://wago.tools) for product `wowf`. The build is pinned in the script, so the output is reproducible. A Node script with no dependencies writes compact JSON into `src/data/`, and that JSON is committed: Netlify builds never hit wago.tools.
-- **Gatherables.** These are reagents that no recipe creates. Each is assigned to the profession that collects it, using `Item.ClassID = 7` (Trade Goods) and its `SubclassID`: 9 herb goes to Herbalism, 7 metal and stone to Mining, and 6 leather to Skinning. Fish share subclass 8 with meat, so stage 1 has to find another way to tell them apart. The script checks these classes against the live data.
+- **Gatherables.** These are reagents that no recipe creates. Each is assigned to the profession that collects it, using `Item.ClassID = 7` (Trade Goods) and its `SubclassID`: 9 herb goes to Herbalism, 7 metal and stone to Mining, and 6 leather to Skinning. Fish share subclass 8 with meat, so stage 1 has to find another way to tell them apart. Cloth (subclass 5) goes under every profession whose recipes use it. Other reagents that drop from creatures show only in recipe details. The script checks these classes against the live data.
 - **Profession picker.** The 13 profession lines from the game data are shown as toggles. With nothing chosen yet, the popup opens on the picker.
 - **Icons.** `Item.IconFileDataID` is mapped to an icon name through the community listfile (wowdev/wow-listfile on GitHub). The browser then loads the image from `wow.zamimg.com`, which sends `Access-Control-Allow-Origin: *`, so the images can be WebGL textures. If an icon fails to load, the slot keeps an empty frame tinted by the item's quality colour.
 - **UI art.** Drawn with Pixi `Graphics`, turned into textures once at startup, and used through `NineSliceSprite`. There are no image files and no Blizzard art.

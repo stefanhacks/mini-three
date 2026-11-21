@@ -23,8 +23,8 @@ Node 22 (see `.nvmrc`).
 
 Netlify builds `main` and every PR (`netlify.toml`). Branch deploys are off, so a branch gets a preview only through its PR:
 
-- Production (`main`): https://eeiriee.netlify.app
-- PR preview: `https://deploy-preview-<pr-number>--eeiriee.netlify.app`
+- Production (`main`): https://mini-three.netlify.app
+- PR preview: `https://deploy-preview-<pr-number>--mini-three.netlify.app`
 
 ## License
 
