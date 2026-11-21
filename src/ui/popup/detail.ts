@@ -1,4 +1,4 @@
-import { Container, Rectangle } from "pixi.js";
+import { Container, Rectangle, type Text } from "pixi.js";
 import { CLOTH_KEY, type Recipe } from "../../data";
 import { PROFESSION_ICONS, gathererOf, itemOf, professionByKey, recipesUsingItem } from "../../data/model";
 import { type ArtKit, PALETTE, TEXT_STYLES, createStoneOverlay } from "../art";
@@ -20,11 +20,30 @@ const SLOT_SIZE = 40;
 const REAGENT_ROW = 48;
 const NOTES_HEIGHT = 84;
 const USED_IN_LINE = 18;
+/** Narrowest reagent column; wide panes fit more than two. */
+const REAGENT_COLUMN = 160;
+const NOTES_GAP = 18;
+
+interface DetailOptions {
+  /** Notes in a column on the right, full height, instead of under the content: for short, wide panes. */
+  notesBeside?: boolean;
+}
+
+/** Shortens a single-line label with an ellipsis until it fits `maxWidth`. */
+const fitWidth = (text: Text, maxWidth: number): Text => {
+  const full = text.text;
+  let length = full.length;
+  while (text.width > maxWidth && length > 1) {
+    length -= 1;
+    text.text = `${full.slice(0, length).trimEnd()}…`;
+  }
+  return text;
+};
 
 /** The right-hand pane: what the selected recipe needs, or where a gatherable is used, plus the notes field. */
 export const createDetailPane = (
   kit: ArtKit, width: number, height: number, onSelectItem: (itemId: number) => void,
-  onToggleKnown: (recipe: Recipe, known: boolean) => void,
+  onToggleKnown: (recipe: Recipe, known: boolean) => void, options: DetailOptions = {},
 ): DetailPane => {
   const view = new Container();
   view.addChild(piece(kit, "paneDetail", width, height));
@@ -32,8 +51,16 @@ export const createDetailPane = (
   let body = new Container();
   view.addChild(body);
 
-  const inner = width - PAD * 2;
-  const notesTop = height - NOTES_HEIGHT - PAD - 18;
+  const beside = options.notesBeside === true;
+  const paneInner = width - PAD * 2;
+  // Width of the content column: everything but the notes when they sit beside it.
+  const inner = beside ? Math.round(paneInner * 0.6) : paneInner;
+  const notesX = beside ? PAD + inner + NOTES_GAP : PAD;
+  const notesWidth = beside ? paneInner - inner - NOTES_GAP : inner;
+  const notesHeight = beside ? height - PAD * 2 - 12 : NOTES_HEIGHT;
+  const notesTop = beside ? PAD : height - NOTES_HEIGHT - PAD - 18;
+  // Where the content above (or beside) the notes has to end.
+  const contentBottom = beside ? height - PAD : notesTop;
 
   const heading = (icon: string | null, quality: number, title: string, titleColor: number, subtitle: string) => {
     body.addChild(at(itemSlot(kit, icon, ICON_SIZE, quality), PAD, PAD));
@@ -48,13 +75,13 @@ export const createDetailPane = (
 
   const FIELD_INSET = 6;
   const notesArea = {
-    x: PAD + FIELD_INSET, y: notesTop + 12 + FIELD_INSET, width: inner - FIELD_INSET * 2,
-    height: NOTES_HEIGHT - FIELD_INSET * 2,
+    x: notesX + FIELD_INSET, y: notesTop + 12 + FIELD_INSET, width: notesWidth - FIELD_INSET * 2,
+    height: notesHeight - FIELD_INSET * 2,
   };
 
   const notes = () => {
-    body.addChild(label("Notes:", TEXT_STYLES.label, PAD, notesTop));
-    body.addChild(at(piece(kit, "field", inner, NOTES_HEIGHT), PAD, notesTop + 12));
+    body.addChild(label("Notes:", TEXT_STYLES.label, notesX, notesTop));
+    body.addChild(at(piece(kit, "field", notesWidth, notesHeight), notesX, notesTop + 12));
   };
 
   const clickable = (target: Container, itemId: number, hitWidth: number, hitHeight: number) => {
@@ -79,11 +106,13 @@ export const createDetailPane = (
     const top = PAD + ICON_SIZE + 36;
     body.addChild(label("Reagents:", TEXT_STYLES.label, PAD, top));
     const knownBox = checkbox(kit, "Known", TEXT_STYLES.row, (checked) => onToggleKnown(recipe, checked), known);
-    body.addChild(at(knownBox.view, width - PAD - 72, top - 10));
-    const column = Math.floor(inner / 2);
+    body.addChild(at(knownBox.view, PAD + inner - 72, top - 10));
+    const columns = Math.max(2, Math.floor(inner / REAGENT_COLUMN));
+    const column = Math.floor(inner / columns);
     recipe.reagents.forEach(({ item: itemId, count }, i) => {
       const item = itemOf(itemId);
-      const cell = at(new Container(), PAD + (i % 2) * column, top + 14 + Math.floor(i / 2) * REAGENT_ROW);
+      const cell = at(new Container(), PAD + (i % columns) * column,
+        top + 14 + Math.floor(i / columns) * REAGENT_ROW);
       cell.addChild(itemSlot(kit, item.icon, SLOT_SIZE, item.quality, count));
       const name = label(item.name, tinted(TEXT_STYLES.body, qualityColor(item.quality)), SLOT_SIZE + 8,
         SLOT_SIZE / 2, 0, 0.5);
@@ -105,14 +134,14 @@ export const createDetailPane = (
     const top = PAD + ICON_SIZE + 36;
     body.addChild(label(`Used in ${users.length} recipe${users.length === 1 ? "" : "s"}:`, TEXT_STYLES.label,
       PAD, top));
-    const fits = Math.max(1, Math.floor((notesTop - top - 24) / USED_IN_LINE));
+    const fits = Math.max(1, Math.floor((contentBottom - top - 24) / USED_IN_LINE));
     const shown = users.length > fits ? fits - 1 : users.length;
     users.slice(0, shown).forEach((recipe, i) => {
       const count = recipe.reagents.find((r) => r.item === itemId)?.count ?? 1;
       const profession = professionByKey.get(recipe.profession)?.name ?? "";
       const line = label(`${profession}: ${recipe.name}${count > 1 ? ` (×${count})` : ""}`, TEXT_STYLES.row,
         PAD + 4, top + 22 + i * USED_IN_LINE);
-      body.addChild(line);
+      body.addChild(fitWidth(line, inner - 4));
     });
     if (shown < users.length) {
       body.addChild(label(`…and ${users.length - shown} more`, TEXT_STYLES.muted, PAD + 4,

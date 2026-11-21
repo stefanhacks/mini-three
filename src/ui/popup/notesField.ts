@@ -12,12 +12,25 @@ export interface NotesField {
    * and IME follow the canvas art. Cheap to call every frame.
    */
   place: (x: number, y: number, width: number, height: number, scale: number) => void;
+  /** Hides an open field without closing it, while its pane moves. Hiding blurs it. */
+  setVisible: (visible: boolean) => void;
+  /** Font size in CSS px. Phones get 16: iOS zooms the page into any smaller field on focus. */
+  setTextSize: (size: number) => void;
+  element: HTMLTextAreaElement;
 }
 
-const FONT_SIZE = 13;
+export const NOTES_TEXT_SIZE = 13;
+/** iOS Safari zooms into a focused field whose text is under 16 px. */
+export const NOTES_TEXT_SIZE_MOBILE = 16;
+
+const font = (size: number): string => `${size}px/${size + 4}px ${BODY_FONT.map(quote).join(", ")}`;
 
 const hex = (colour: number): string => `#${colour.toString(16).padStart(6, "0")}`;
-const quote = (family: string): string => family.includes(" ") ? `"${family}"` : family;
+// Pixi's TextStyle quotes the shared BODY_FONT entries in place once text exists, so strip quotes before adding them.
+const quote = (family: string): string => {
+  const bare = family.replace(/["']/g, "");
+  return bare.includes(" ") ? `"${bare}"` : bare;
+};
 
 /**
  * The notes `<textarea>`, a real DOM element over the canvas: native typing, IME, selection and mobile keyboards.
@@ -43,7 +56,7 @@ export const createNotesField = (onInput: (key: string, text: string) => void): 
     background: "rgba(0, 0, 0, 0.35)",
     color: hex(PALETTE.text.body),
     caretColor: hex(PALETTE.text.header),
-    font: `${FONT_SIZE}px/17px ${BODY_FONT.map(quote).join(", ")}`,
+    font: font(NOTES_TEXT_SIZE),
     transformOrigin: "0 0",
   });
 
@@ -53,7 +66,15 @@ export const createNotesField = (onInput: (key: string, text: string) => void): 
   });
 
   let key: string | null = null;
+  let visible = true;
   let placed = "";
+  const show = () => {
+    const shown = key !== null && visible;
+    area.style.display = shown ? "block" : "none";
+    if (!shown) {
+      area.blur();
+    }
+  };
   area.addEventListener("input", () => {
     if (key !== null) {
       onInput(key, area.value);
@@ -67,12 +88,11 @@ export const createNotesField = (onInput: (key: string, text: string) => void): 
       if (area.value !== text) {
         area.value = text;
       }
-      area.style.display = "block";
+      show();
     },
     close: () => {
       key = null;
-      area.style.display = "none";
-      area.blur();
+      show();
     },
     place: (x, y, width, height, scale) => {
       const next = `${x}|${y}|${width}|${height}|${scale}`;
@@ -86,5 +106,15 @@ export const createNotesField = (onInput: (key: string, text: string) => void): 
         height: `${height}px`,
       });
     },
+    setVisible: (value) => {
+      if (value !== visible) {
+        visible = value;
+        show();
+      }
+    },
+    setTextSize: (size) => {
+      area.style.font = font(size);
+    },
+    element: area,
   };
 };

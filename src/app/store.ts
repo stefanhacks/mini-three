@@ -9,6 +9,8 @@ export interface AppState {
   /** Collapsed list section ids. */
   collapsed: ReadonlySet<string>;
   view: "picker" | "list";
+  /** The mobile layout shows the detail pane over the list. Transient; desktop always shows both. */
+  detailOpen: boolean;
   /** `recipeKey`s of the recipes marked as known. Saved. */
   known: ReadonlySet<string>;
   /** Show only known recipes in the list. Saved. */
@@ -20,22 +22,34 @@ export interface AppState {
 export interface Store {
   get: () => AppState;
   set: (patch: Partial<AppState>) => void;
-  subscribe: (listener: (state: AppState, previous: AppState) => void) => void;
+  /** Returns a function that removes the listener. */
+  subscribe: (listener: (state: AppState, previous: AppState) => void) => () => void;
 }
 
-/** A tiny observable state holder. `persist` in storage.ts saves it through `subscribe`. */
+/**
+ * A tiny observable state holder. `persist` in storage.ts saves it through `subscribe`. A listener removed while
+ * others are being notified is not called again, and one added then waits for the next change.
+ */
 export const createStore = (initial: AppState): Store => {
   let state = initial;
-  const listeners: ((state: AppState, previous: AppState) => void)[] = [];
+  let listeners: ((state: AppState, previous: AppState) => void)[] = [];
   return {
     get: () => state,
     set: (patch) => {
       const previous = state;
       state = { ...state, ...patch };
-      listeners.forEach((listener) => listener(state, previous));
+      const current = listeners;
+      current.forEach((listener) => {
+        if (listeners.includes(listener)) {
+          listener(state, previous);
+        }
+      });
     },
     subscribe: (listener) => {
-      listeners.push(listener);
+      listeners = [...listeners, listener];
+      return () => {
+        listeners = listeners.filter((entry) => entry !== listener);
+      };
     },
   };
 };

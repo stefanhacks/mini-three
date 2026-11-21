@@ -1,14 +1,23 @@
-import { Container, type FederatedPointerEvent, type FederatedWheelEvent, Graphics, Rectangle } from "pixi.js";
+import {
+  Container, type FederatedPointerEvent, type FederatedWheelEvent, Graphics, Rectangle, type Ticker,
+} from "pixi.js";
 import { type ArtKit, PALETTE, TEXT_STYLES, createNineSlice, createStoneOverlay } from "../art";
 import { at, iconSprite, label, piece, qualityColor, tinted } from "../widgets";
-import { type ListRow, ROW_HEIGHT, rowHeight } from "./rows";
+import { DESKTOP_ROWS, type ListRow, type RowMetrics, rowHeight } from "./rows";
 import { itemOf } from "../../data/model";
+import { createDragScroll } from "./dragScroll";
 
 export interface ScrollList {
   view: Container;
   /** Replaces the rows. `resetScroll` jumps back to the top (a new profession); otherwise the offset is kept. */
   setRows: (rows: ListRow[], resetScroll: boolean) => void;
   setSelected: (key: string | null) => void;
+  /**
+   * The scroll offset in rows (2.5 is halfway down the third row), to carry it into a list rebuilt with other row
+   * heights.
+   */
+  getPosition: () => number;
+  setPosition: (position: number) => void;
 }
 
 interface Handlers {
@@ -18,7 +27,6 @@ interface Handlers {
 
 const PAD = 6;
 const SCROLLBAR = 17;
-const DRAG_THRESHOLD = 4;
 const WHEEL_LINE = 20;
 const MIN_THUMB = 24;
 const ITEM_TEXT_X = 12;
@@ -34,9 +42,15 @@ const rowKey = (row: ListRow): string => row.kind === "header" ? row.id : row.ke
 
 /**
  * A virtual list: only the rows in view exist as display objects, recycled as the list scrolls, so a profession with
- * 500+ recipes costs the same as one with 20. Scrolls with the wheel, by dragging the content, and by the scrollbar.
+ * 500+ recipes costs the same as one with 20. Scrolls with the wheel, by dragging (and flinging) the content, and
+ * by the scrollbar. `metrics` sets the row and header heights (taller on touch screens).
  */
-export const createScrollList = (kit: ArtKit, width: number, height: number, handlers: Handlers): ScrollList => {
+export const createScrollList = (
+  kit: ArtKit, width: number, height: number, handlers: Handlers, ticker: Ticker, metrics: RowMetrics = DESKTOP_ROWS,
+): ScrollList => {
+  const rowH = metrics.row;
+  // The header art sits in its slot with 4 px to spare, as the gap above the first row.
+  const headerH = metrics.header - 4;
   const view = new Container();
   view.addChild(piece(kit, "paneList", width, height));
   view.addChild(at(createStoneOverlay(kit, width - 2, height - 2, 0.6), 1, 1));
@@ -53,20 +67,19 @@ export const createScrollList = (kit: ArtKit, width: number, height: number, han
   let total = 0;
   let scroll = 0;
   let selectedKey: string | null = null;
-  let dragged = false;
 
   const makeRowView = (): RowView => {
     const holder = new Container();
-    const header = createNineSlice(kit.pieces.header, rowWidth, 22);
-    const headerHover = createNineSlice(kit.pieces.headerHover, rowWidth, 22);
-    const headerText = label("", TEXT_STYLES.header, 8, 11);
-    const toggle = iconSprite(kit.icons.minus, rowWidth - 10, 11, PALETTE.text.header);
-    const hover = createNineSlice(kit.pieces.rowHover, rowWidth, ROW_HEIGHT - 1);
-    const selected = createNineSlice(kit.pieces.rowSelected, rowWidth, ROW_HEIGHT - 1);
-    const text = label("", TEXT_STYLES.row, 12, ROW_HEIGHT / 2);
-    const side = label("", TEXT_STYLES.muted, rowWidth - 8, ROW_HEIGHT / 2, 1);
+    const header = createNineSlice(kit.pieces.header, rowWidth, headerH);
+    const headerHover = createNineSlice(kit.pieces.headerHover, rowWidth, headerH);
+    const headerText = label("", TEXT_STYLES.header, 8, headerH / 2);
+    const toggle = iconSprite(kit.icons.minus, rowWidth - 10, headerH / 2, PALETTE.text.header);
+    const hover = createNineSlice(kit.pieces.rowHover, rowWidth, rowH - 1);
+    const selected = createNineSlice(kit.pieces.rowSelected, rowWidth, rowH - 1);
+    const text = label("", TEXT_STYLES.row, 12, rowH / 2);
+    const side = label("", TEXT_STYLES.muted, rowWidth - 8, rowH / 2, 1);
     // Known recipes get a check in a gutter left of the name; unknown ones leave it empty.
-    const known = iconSprite(kit.icons.check, 13, ROW_HEIGHT / 2, PALETTE.gold.light, 0.8);
+    const known = iconSprite(kit.icons.check, 13, rowH / 2, PALETTE.gold.light, 0.8);
     holder.addChild(header, headerHover, headerText, toggle, hover, selected, text, side, known);
     holder.eventMode = "static";
     holder.cursor = "pointer";
@@ -104,7 +117,7 @@ export const createScrollList = (kit: ArtKit, width: number, height: number, han
           text.style = tinted(TEXT_STYLES.row, qualityColor(item.quality));
           side.text = "";
         }
-        holder.hitArea = new Rectangle(0, 0, rowWidth, isHeader ? 22 : ROW_HEIGHT);
+        holder.hitArea = new Rectangle(0, 0, rowWidth, isHeader ? headerH : rowH);
       },
     };
     holder.on("pointerover", () => {
@@ -120,7 +133,7 @@ export const createScrollList = (kit: ArtKit, width: number, height: number, han
     });
     holder.on("pointertap", () => {
       const row = rowView.row;
-      if (!row || dragged) {
+      if (!row || drag.dragged()) {
         return;
       }
       if (row.kind === "header") {
@@ -132,7 +145,7 @@ export const createScrollList = (kit: ArtKit, width: number, height: number, han
     return rowView;
   };
 
-  const pool: RowView[] = Array.from({ length: Math.ceil(viewport / ROW_HEIGHT) + 2 }, makeRowView);
+  const pool: RowView[] = Array.from({ length: Math.ceil(viewport / rowH) + 2 }, makeRowView);
   pool.forEach((rowView) => content.addChild(rowView.view));
 
   // Scrollbar: arrows, track and a draggable thumb.
@@ -184,48 +197,32 @@ export const createScrollList = (kit: ArtKit, width: number, height: number, han
   view.addChildAt(area, 2);
   view.eventMode = "static";
   view.on("wheel", (event: FederatedWheelEvent) => {
+    drag.stop();
     scrollBy(event.deltaMode === 1 ? event.deltaY * WHEEL_LINE : event.deltaY);
   });
 
-  let drag: { startY: number; startScroll: number; perPixel: number } | null = null;
-  const startDrag = (event: FederatedPointerEvent, perPixel: number) => {
-    drag = { startY: event.global.y, startScroll: scroll, perPixel };
-    dragged = false;
-  };
+  const drag = createDragScroll(view, ticker, {
+    get: () => scroll,
+    set: (value) => {
+      scroll = value;
+      render();
+    },
+  });
   content.eventMode = "static";
-  area.on("pointerdown", (event: FederatedPointerEvent) => startDrag(event, -1));
-  content.on("pointerdown", (event: FederatedPointerEvent) => startDrag(event, -1));
+  area.on("pointerdown", (event: FederatedPointerEvent) => drag.press(event));
+  content.on("pointerdown", (event: FederatedPointerEvent) => drag.press(event));
   thumb.eventMode = "static";
   thumb.cursor = "grab";
   thumb.on("pointerdown", (event: FederatedPointerEvent) => {
     const free = trackHeight - thumb.height;
-    startDrag(event, free > 0 ? maxScroll() / free : 0);
+    drag.press(event, free > 0 ? maxScroll() / free : 0);
   });
-  view.on("globalpointermove", (event: FederatedPointerEvent) => {
-    if (!drag) {
-      return;
-    }
-    const scale = view.worldTransform.d || 1;
-    const dy = (event.global.y - drag.startY) / scale;
-    if (Math.abs(dy) > DRAG_THRESHOLD) {
-      dragged = true;
-    }
-    if (dragged) {
-      scroll = drag.startScroll + dy * drag.perPixel;
-      render();
-    }
-  });
-  const endDrag = () => {
-    drag = null;
-  };
-  view.on("pointerup", endDrag);
-  view.on("pointerupoutside", endDrag);
 
   [[up, -3], [down, 3]].forEach(([arrow, rowsBy]) => {
     const sprite = arrow as Container;
     sprite.eventMode = "static";
     sprite.cursor = "pointer";
-    sprite.on("pointertap", () => scrollBy((rowsBy as number) * ROW_HEIGHT));
+    sprite.on("pointertap", () => scrollBy((rowsBy as number) * rowH));
   });
 
   return {
@@ -236,7 +233,7 @@ export const createScrollList = (kit: ArtKit, width: number, height: number, han
       total = 0;
       rows.forEach((row, i) => {
         tops.push(total);
-        total += rowHeight(row, rows[i + 1]);
+        total += rowHeight(row, rows[i + 1], metrics);
       });
       if (resetScroll) {
         scroll = 0;
@@ -245,6 +242,22 @@ export const createScrollList = (kit: ArtKit, width: number, height: number, han
     },
     setSelected: (key) => {
       selectedKey = key;
+      render();
+    },
+    getPosition: () => {
+      let index = 0;
+      while (index < rows.length - 1 && tops[index + 1] <= scroll) {
+        index += 1;
+      }
+      const height = rows.length > 0 ? rowHeight(rows[index], rows[index + 1], metrics) : 1;
+      return index + (scroll - (tops[index] ?? 0)) / height;
+    },
+    setPosition: (position) => {
+      const index = Math.min(Math.floor(position), rows.length - 1);
+      if (index < 0) {
+        return;
+      }
+      scroll = tops[index] + (position - index) * rowHeight(rows[index], rows[index + 1], metrics);
       render();
     },
   };

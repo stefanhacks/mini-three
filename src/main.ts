@@ -1,15 +1,20 @@
 import "./style.css";
 import { Application } from "pixi.js";
+import { syncBackHistory } from "./app/backHistory";
 import { fromSaved, loadSaved, persist } from "./app/storage";
 import { createStore } from "./app/store";
 import { professions } from "./data";
 import { PALETTE, createArtKit, createBackdrop, loadFonts } from "./ui/art";
-import { TABS_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, createPopup } from "./ui/popup/popup";
+import { type LayoutMode, desktopScale, layoutMode } from "./ui/layout";
+import { createNotesField } from "./ui/popup/notesField";
+import { type Popup, TABS_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, createPopup } from "./ui/popup/popup";
 
 const MAX_RESOLUTION = 2;
-const MARGIN = 12;
 // Room for the portrait medallion that pokes out of the top-left corner.
 const CORNER = 16;
+/** Gap between the mobile frame and the screen edges. */
+const MOBILE_MARGIN = 6;
+const FOOTPRINT = { width: WINDOW_WIDTH + TABS_WIDTH + CORNER, height: WINDOW_HEIGHT + CORNER };
 
 const app = new Application();
 
@@ -31,14 +36,81 @@ const kit = createArtKit(app.renderer);
 const backdrop = createBackdrop(app.renderer);
 const store = createStore(fromSaved(loadSaved(new Set(professions.map((profession) => profession.key)))));
 persist(store);
-const popup = createPopup(kit, store);
-app.stage.addChild(backdrop.view, popup);
+app.stage.addChild(backdrop.view);
+
+const notesField = createNotesField((key, text) => {
+  const notes = { ...store.get().notes };
+  if (text === "") {
+    delete notes[key];
+  } else {
+    notes[key] = text;
+  }
+  store.set({ notes });
+});
+
+let mode: LayoutMode | null = null;
+let built = { width: 0, height: 0 };
+let popup: Popup | null = null;
+
+/** Replaces the popup with one for the current mode and size, carrying over what the store doesn't hold. */
+const build = (width: number, height: number) => {
+  const carry = popup?.carry();
+  popup?.destroy();
+  built = { width, height };
+  popup = createPopup(kit, store, {
+    ticker: app.ticker,
+    notesField,
+    layout: mode === "mobile"
+      ? { mode, width: width - MOBILE_MARGIN * 2, height: height - MOBILE_MARGIN * 2 }
+      : { mode: "desktop" },
+  }, carry);
+  app.stage.addChild(popup.view);
+};
+
+const layout = (width: number, height: number) => {
+  backdrop.resize(width, height);
+  const next = layoutMode(width, height, FOOTPRINT);
+  // Some phones shrink the window for the on-screen keyboard instead of only the visual viewport. While a note is
+  // being typed, a height-only change is the keyboard: keep the frame and let the keyboard handling lift it.
+  const keyboard = next === "mobile" && mode === "mobile" && width === built.width
+    && document.activeElement === notesField.element;
+  if (next !== mode || (next === "mobile" && !keyboard && (width !== built.width || height !== built.height))) {
+    mode = next;
+    build(width, height);
+  }
+  if (!popup) {
+    return;
+  }
+  if (mode === "mobile") {
+    popup.view.scale.set(1);
+    popup.view.position.set(MOBILE_MARGIN, MOBILE_MARGIN);
+    return;
+  }
+  const scale = desktopScale(width, height, FOOTPRINT);
+  popup.view.scale.set(scale);
+  popup.view.position.set(
+    Math.round((width - FOOTPRINT.width * scale) / 2 + CORNER * scale),
+    Math.round((height - FOOTPRINT.height * scale) / 2 + CORNER * scale),
+  );
+};
+app.renderer.on("resize", layout);
+layout(app.screen.width, app.screen.height);
+// A resize skipped while typing is applied once the field lets go.
+notesField.element.addEventListener("blur", () => layout(app.screen.width, app.screen.height));
+
+// The mobile tab strip is sized for the chosen professions: rebuild when they change, before the next frame.
+store.subscribe((state, previous) => {
+  if (mode === "mobile" && state.chosen !== previous.chosen) {
+    app.ticker.addOnce(() => build(app.screen.width, app.screen.height));
+  }
+});
+syncBackHistory(store, () => mode === "mobile");
 
 // Clicking outside the window, or pressing B, cycles the background scene.
 app.stage.eventMode = "static";
 app.stage.hitArea = app.screen;
 app.stage.on("pointertap", (event) => {
-  if (!popup.getBounds().containsPoint(event.global.x, event.global.y)) {
+  if (popup && !popup.view.getBounds().containsPoint(event.global.x, event.global.y)) {
     backdrop.next();
   }
 });
@@ -47,19 +119,5 @@ window.addEventListener("keydown", (event) => {
     backdrop.next();
   }
 });
-
-const layout = (width: number, height: number) => {
-  backdrop.resize(width, height);
-  const fullWidth = WINDOW_WIDTH + TABS_WIDTH + CORNER;
-  const fullHeight = WINDOW_HEIGHT + CORNER;
-  const scale = Math.min(1, (width - MARGIN * 2) / fullWidth, (height - MARGIN * 2) / fullHeight);
-  popup.scale.set(scale);
-  popup.position.set(
-    Math.round((width - fullWidth * scale) / 2 + CORNER * scale),
-    Math.round((height - fullHeight * scale) / 2 + CORNER * scale),
-  );
-};
-app.renderer.on("resize", layout);
-layout(app.screen.width, app.screen.height);
 
 window.debug = { ...window.debug, store, backdrop };

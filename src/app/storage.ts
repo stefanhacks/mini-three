@@ -82,6 +82,7 @@ export const fromSaved = (data: SavedData): AppState => ({
   selection: null,
   collapsed: new Set(data.collapsed),
   view: data.chosen.length > 0 ? "list" : "picker",
+  detailOpen: false,
   known: new Set(data.known),
   knownOnly: data.knownOnly,
   notes: data.notes,

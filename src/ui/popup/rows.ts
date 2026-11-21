@@ -5,15 +5,22 @@ export type ListRow =
   | { kind: "recipe"; key: string; recipe: Recipe; known: boolean }
   | { kind: "item"; key: string; itemId: number };
 
-export const HEADER_HEIGHT = 26;
-export const ROW_HEIGHT = 20;
-export const SECTION_GAP = 6;
+/** Heights in the list, in CSS px: a section header's slot, an entry row, and the gap closing a section. */
+export interface RowMetrics {
+  header: number;
+  row: number;
+  gap: number;
+}
 
-export const rowHeight = (row: ListRow, next?: ListRow): number => {
+export const DESKTOP_ROWS: RowMetrics = { header: 26, row: 20, gap: 6 };
+/** Mobile rows are finger-sized: 34 px targets instead of 20. */
+export const TOUCH_ROWS: RowMetrics = { header: 36, row: 34, gap: 8 };
+
+export const rowHeight = (row: ListRow, next: ListRow | undefined, metrics: RowMetrics): number => {
   if (row.kind === "header") {
-    return HEADER_HEIGHT;
+    return metrics.header;
   }
-  return ROW_HEIGHT + (next?.kind === "header" ? SECTION_GAP : 0);
+  return metrics.row + (next?.kind === "header" ? metrics.gap : 0);
 };
 
 interface RowSources {

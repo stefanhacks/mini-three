@@ -8,3 +8,17 @@ body {
 body {
   overflow: hidden;
 }
+/*
+ * Fixed at the layout viewport's top-left, like the notes textarea, so both share one coordinate space even if a
+ * phone scrolls the page to show the keyboard. The canvas handles every touch itself: no browser pan or zoom.
+ */
+canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  display: block;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
