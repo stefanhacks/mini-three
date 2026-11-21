@@ -49,7 +49,7 @@ const FISH_PET_FOOD = 2;
 // Recipes in these TradeSkillCategory names are dropped (matched by name, case-insensitive).
 const EXCLUDED_CATEGORIES = ["SEASON OF DISCOVERY"];
 
-// Hand-written gatherables, because the item tables cannot tell them apart. Ids must be uncrafted reagents.
+// Hand-written gatherables, because the item tables cannot tell them apart. Ids must be reagents in the data.
 // Fish caught with a fishing pole in Classic. Crab, clam and crawler meat share pet food type fish but are not fished.
 const FISHING_ITEMS = [
   4603, // Raw Spotted Yellowtail
@@ -81,6 +81,14 @@ const HERBALISM_ITEMS = [
   11040, // Morrowgrain
   17034, // Maple Seed
   17035, // Stranglethorn Seed
+];
+// Leathers that skinning yields directly, although Leatherworking can also make them from scraps or lesser leather.
+const SKINNING_ITEMS = [
+  2318, // Light Leather
+  2319, // Medium Leather
+  4234, // Heavy Leather
+  4304, // Thick Leather
+  8170, // Rugged Leather
 ];
 // Gems that drop from mining veins in Classic. They are class 7 subclass 11 ("other"), so Mining can't be inferred.
 const MINING_GEMS = [
@@ -310,11 +318,13 @@ const main = async () => {
   }
 
   // Gatherables per profession.
-  const allowLists = { fishing: FISHING_ITEMS, mining: MINING_GEMS, herbalism: HERBALISM_ITEMS };
+  const allowLists = {
+    fishing: FISHING_ITEMS, mining: MINING_GEMS, herbalism: HERBALISM_ITEMS, skinning: SKINNING_ITEMS,
+  };
   const gatherables = classifyGatherables(classes, recipes, allowLists);
-  for (const id of [...FISHING_ITEMS, ...MINING_GEMS, ...HERBALISM_ITEMS]) {
-    if (!keptItems.has(id) || recipes.some((recipe) => recipe.item === id)) {
-      throw new Error(`allow-listed item ${id} is not an uncrafted reagent in the data`);
+  for (const id of Object.values(allowLists).flat()) {
+    if (!recipes.some((recipe) => recipe.reagents.some((reagent) => reagent.item === id))) {
+      throw new Error(`allow-listed item ${id} is not a reagent in the data`);
     }
   }
 

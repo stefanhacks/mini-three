@@ -60,10 +60,10 @@ describe("classifyGatherables", () => {
     expect(classifyGatherables(items, recipes)).toEqual({ mining: [2], cloth: [4] });
   });
 
-  it("assigns allow-listed ids whatever their class, but never ones a recipe creates", () => {
+  it("assigns allow-listed ids whatever their class, even ones a recipe also creates", () => {
     const recipes = [recipe("cooking", [6, 7, 5]), recipe("mining", [2], 5)];
     expect(classifyGatherables(items, recipes, { fishing: [6], herbalism: [7, 5] }))
-      .toEqual({ fishing: [6], herbalism: [7], mining: [2] });
+      .toEqual({ fishing: [6], herbalism: [5, 7], mining: [2] });
   });
 
   it("ignores reagents missing from the item table", () => {

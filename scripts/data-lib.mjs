@@ -86,9 +86,10 @@ export const gatherProfession = (item) => {
 
 // Builds the gatherable item ids per profession key, sorted ascending.
 // items: Map of item id to { classId, subclassId }.
-// allowLists: { <profession key>: [item id] }, hand-written ids assigned to a profession whatever their class.
+// allowLists: { <profession key>: [item id] }, hand-written ids assigned to a profession whatever their class,
+// even when a recipe also creates them.
 // recipes: [{ profession, item?, reagents: [{ item }] }].
-// Gatherables are reagents that no recipe creates. Cloth (class 7, subclass 5) goes under CLOTH_KEY.
+// Otherwise gatherables are reagents that no recipe creates. Cloth (class 7, subclass 5) goes under CLOTH_KEY.
 export const classifyGatherables = (items, recipes, allowLists = {}) => {
   const allowed = new Map();
   for (const [profession, ids] of Object.entries(allowLists)) {
@@ -109,11 +110,12 @@ export const classifyGatherables = (items, recipes, allowLists = {}) => {
   for (const recipe of recipes) {
     for (const { item: id } of recipe.reagents) {
       const item = items.get(id);
-      if (!item || created.has(id)) {
-        continue;
-      }
+      // The hand-written lists win: some gathered items can also be crafted (Light Leather from scraps).
       if (allowed.has(id)) {
         add(allowed.get(id), id);
+        continue;
+      }
+      if (!item || created.has(id)) {
         continue;
       }
       if (item.classId === TRADE_GOODS_CLASS && item.subclassId === CLOTH_SUBCLASS) {

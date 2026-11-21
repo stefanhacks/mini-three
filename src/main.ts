@@ -1,9 +1,13 @@
 import "./style.css";
 import { Application } from "pixi.js";
-import { createShowcase } from "./showcase";
-import { PALETTE, createArtKit, loadFonts } from "./ui/art";
+import { createStore } from "./app/store";
+import { PALETTE, createArtKit, createBackdrop, loadFonts } from "./ui/art";
+import { TABS_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, createPopup } from "./ui/popup/popup";
 
 const MAX_RESOLUTION = 2;
+const MARGIN = 12;
+// Room for the portrait medallion that pokes out of the top-left corner.
+const CORNER = 16;
 
 const app = new Application();
 
@@ -22,4 +26,37 @@ await Promise.all([
 document.body.appendChild(app.canvas);
 
 const kit = createArtKit(app.renderer);
-createShowcase(app, kit);
+const backdrop = createBackdrop(app.renderer);
+const store = createStore({ chosen: [], active: null, selection: null, collapsed: new Set(), view: "picker" });
+const popup = createPopup(kit, store);
+app.stage.addChild(backdrop.view, popup);
+
+// Clicking outside the window, or pressing B, cycles the background scene.
+app.stage.eventMode = "static";
+app.stage.hitArea = app.screen;
+app.stage.on("pointertap", (event) => {
+  if (!popup.getBounds().containsPoint(event.global.x, event.global.y)) {
+    backdrop.next();
+  }
+});
+window.addEventListener("keydown", (event) => {
+  if (event.key.toLowerCase() === "b" && !(event.target instanceof HTMLTextAreaElement)) {
+    backdrop.next();
+  }
+});
+
+const layout = (width: number, height: number) => {
+  backdrop.resize(width, height);
+  const fullWidth = WINDOW_WIDTH + TABS_WIDTH + CORNER;
+  const fullHeight = WINDOW_HEIGHT + CORNER;
+  const scale = Math.min(1, (width - MARGIN * 2) / fullWidth, (height - MARGIN * 2) / fullHeight);
+  popup.scale.set(scale);
+  popup.position.set(
+    Math.round((width - fullWidth * scale) / 2 + CORNER * scale),
+    Math.round((height - fullHeight * scale) / 2 + CORNER * scale),
+  );
+};
+app.renderer.on("resize", layout);
+layout(app.screen.width, app.screen.height);
+
+window.debug = { ...window.debug, store, backdrop };

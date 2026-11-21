@@ -52,7 +52,7 @@ export const PALETTE = {
   },
 } as const;
 
-export type Quality = "poor" | "common" | "uncommon" | "rare" | "epic";
+export type Quality = "poor" | "common" | "uncommon" | "rare" | "epic" | "legendary";
 
 /** Item quality colours, used for item name text and to tint the item slot border. */
 export const QUALITY_COLORS: Record<Quality, number> = {
@@ -61,6 +61,7 @@ export const QUALITY_COLORS: Record<Quality, number> = {
   uncommon: 0x1eff00,
   rare: 0x0070dd,
   epic: 0xa335ee,
+  legendary: 0xff8000,
 };
 
 export type Difficulty = "optimal" | "medium" | "easy" | "trivial";
