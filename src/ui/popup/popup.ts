@@ -5,8 +5,9 @@ import { PROFESSION_ICONS, itemOf, professionByKey, recipeKey, recipesByProfessi
 import {
   type ArtKit, FRAME_TITLE_HEIGHT, SHADOW_SPREAD, TAB_GLOW, TEXT_STYLES, createNineSlice, createStoneOverlay,
 } from "../art";
-import { at, button, itemSlot, label, piece, roundIcon } from "../widgets";
+import { at, button, checkbox, itemSlot, label, piece, roundIcon } from "../widgets";
 import { createDetailPane } from "./detail";
+import { createNotesField } from "./notesField";
 import { createPicker } from "./picker";
 import { buildRows } from "./rows";
 import { createScrollList } from "./scrollList";
@@ -46,7 +47,7 @@ export const createPopup = (kit: ArtKit, store: Store): Container => {
   win.addChild(portrait);
   win.addChild(at(piece(kit, "portraitRing"), -16, -16));
 
-  // Summary bar: recipe and gatherable counts. Stage 4 turns it into known-recipe progress.
+  // Summary bar: known-recipe progress and the gatherable count.
   const barX = 120;
   const barW = 440;
   win.addChild(at(piece(kit, "barTrack", barW, 18), barX, 42));
@@ -73,13 +74,23 @@ export const createPopup = (kit: ArtKit, store: Store): Container => {
     },
   });
   const detail = createDetailPane(kit, w - LIST_WIDTH - 40, contentHeight,
-    (itemId) => store.set({ selection: { kind: "item", itemId } }));
+    (itemId) => store.set({ selection: { kind: "item", itemId } }),
+    (recipe, isKnown) => {
+      const known = new Set(store.get().known);
+      if (isKnown) {
+        known.add(recipeKey(recipe));
+      } else {
+        known.delete(recipeKey(recipe));
+      }
+      store.set({ known });
+    });
   const browse = new Container();
   browse.addChild(at(list.view, 16, CONTENT_TOP + 32));
   browse.addChild(at(detail.view, LIST_WIDTH + 24, CONTENT_TOP));
-  // The list's top strip, where the game has search and filter, shows which tab is open.
-  const listCaption = label("", TEXT_STYLES.header, 20, CONTENT_TOP + 14);
-  browse.addChild(listCaption);
+  // The list's top strip, where the game has search and filter, holds the known-only filter.
+  const knownOnlyBox = checkbox(kit, "Known only", TEXT_STYLES.row,
+    (knownOnly) => store.set({ knownOnly }), store.get().knownOnly);
+  browse.addChild(at(knownOnlyBox.view, 20, CONTENT_TOP + 6));
   win.addChild(browse);
 
   const picker = createPicker(kit, w - 32, contentHeight, (chosen) => {
@@ -116,6 +127,23 @@ export const createPopup = (kit: ArtKit, store: Store): Container => {
     });
   };
 
+  // The notes live in a DOM textarea over the detail pane. It is moved to the pane's screen rectangle every frame
+  // (cheap when nothing moved), so it follows the popup's scale and the window size.
+  const notesField = createNotesField((key, text) => {
+    const notes = { ...store.get().notes };
+    if (text === "") {
+      delete notes[key];
+    } else {
+      notes[key] = text;
+    }
+    store.set({ notes });
+  });
+  detail.view.onRender = () => {
+    const { x, y, width, height } = detail.notesArea;
+    const { a, tx, ty } = detail.view.worldTransform;
+    notesField.place(tx + x * a, ty + y * a, width, height, a);
+  };
+
   let renderedProfession: ProfessionKey | null = null;
 
   const render = () => {
@@ -131,27 +159,43 @@ export const createPopup = (kit: ArtKit, store: Store): Container => {
     if (inPicker || !profession) {
       title.text = "Professions";
       barText.text = `${state.chosen.length} of 14 chosen`;
+      notesField.close();
       return;
     }
     portrait.addChild(roundIcon(PROFESSION_ICONS[profession.key], PORTRAIT - 20));
     title.text = profession.name;
     const recipes = recipesByProfession.get(profession.key) ?? [];
+    const knownCount = recipes.filter((recipe) => state.known.has(recipeKey(recipe))).length;
     barText.text = [
-      recipes.length > 0 ? `${recipes.length} recipes` : "",
+      recipes.length > 0 ? `Known ${knownCount}/${recipes.length} recipes` : "",
       profession.gatherables.length > 0 ? `${profession.gatherables.length} gatherables` : "",
     ].filter(Boolean).join("  ·  ");
-    listCaption.text = profession.name;
+    knownOnlyBox.set(state.knownOnly);
 
-    const rows = buildRows(profession, state.collapsed, { recipes, itemOf, recipeKey });
+    const rows = buildRows(profession, state.collapsed, { recipes, itemOf, recipeKey },
+      { known: state.known, knownOnly: state.knownOnly });
     list.setRows(rows, renderedProfession !== profession.key);
     renderedProfession = profession.key;
     const selection = state.selection;
-    list.setSelected(!selection ? null : selection.kind === "recipe" ? recipeKey(selection.recipe)
-      : `item:${selection.itemId}`);
-    detail.show(selection);
+    const selectedKey = !selection ? null : selection.kind === "recipe" ? recipeKey(selection.recipe)
+      : `item:${selection.itemId}`;
+    list.setSelected(selectedKey);
+    detail.show(selection, selection?.kind === "recipe" && state.known.has(recipeKey(selection.recipe)));
+    if (selectedKey) {
+      notesField.open(selectedKey, state.notes[selectedKey] ?? "");
+    } else {
+      notesField.close();
+    }
   };
 
-  store.subscribe(render);
+  // Typing a note only changes `notes`; nothing visible depends on it, so skip the rebuild (it would also rebuild
+  // the detail pane on every keystroke).
+  store.subscribe((state, previous) => {
+    if (state.notes === previous.notes || (Object.keys(state) as (keyof typeof state)[])
+      .some((field) => field !== "notes" && state[field] !== previous[field])) {
+      render();
+    }
+  });
   if (store.get().view === "picker") {
     picker.open(store.get().chosen);
   }

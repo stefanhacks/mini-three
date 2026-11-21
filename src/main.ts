@@ -1,6 +1,8 @@
 import "./style.css";
 import { Application } from "pixi.js";
+import { fromSaved, loadSaved, persist } from "./app/storage";
 import { createStore } from "./app/store";
+import { professions } from "./data";
 import { PALETTE, createArtKit, createBackdrop, loadFonts } from "./ui/art";
 import { TABS_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, createPopup } from "./ui/popup/popup";
 
@@ -27,7 +29,8 @@ document.body.appendChild(app.canvas);
 
 const kit = createArtKit(app.renderer);
 const backdrop = createBackdrop(app.renderer);
-const store = createStore({ chosen: [], active: null, selection: null, collapsed: new Set(), view: "picker" });
+const store = createStore(fromSaved(loadSaved(new Set(professions.map((profession) => profession.key)))));
+persist(store);
 const popup = createPopup(kit, store);
 app.stage.addChild(backdrop.view, popup);
 

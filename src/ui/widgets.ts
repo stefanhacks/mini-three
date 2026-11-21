@@ -134,7 +134,9 @@ export const button = (kit: ArtKit, text: string, width: number, onPress: () => 
 };
 
 /** A checkbox with a gold check and a label to its right. The whole row toggles. */
-export const checkbox = (kit: ArtKit, text: string, style: TextStyle, onToggle: (checked: boolean) => void) => {
+export const checkbox = (
+  kit: ArtKit, text: string, style: TextStyle, onToggle: (checked: boolean) => void, initial = false,
+) => {
   const view = new Container();
   const box = piece(kit, "checkbox");
   const boxHover = piece(kit, "checkboxHover");
@@ -146,7 +148,7 @@ export const checkbox = (kit: ArtKit, text: string, style: TextStyle, onToggle: 
     checked = value;
     check.visible = value;
   };
-  set(false);
+  set(initial);
   view.eventMode = "static";
   view.cursor = "pointer";
   view.on("pointerover", () => {

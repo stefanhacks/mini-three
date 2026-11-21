@@ -9,6 +9,12 @@ export interface AppState {
   /** Collapsed list section ids. */
   collapsed: ReadonlySet<string>;
   view: "picker" | "list";
+  /** `recipeKey`s of the recipes marked as known. Saved. */
+  known: ReadonlySet<string>;
+  /** Show only known recipes in the list. Saved. */
+  knownOnly: boolean;
+  /** Notes by `recipeKey` (recipes) or `item:<id>` (items). Saved. */
+  notes: Readonly<Record<string, string>>;
 }
 
 export interface Store {
@@ -17,7 +23,7 @@ export interface Store {
   subscribe: (listener: (state: AppState, previous: AppState) => void) => void;
 }
 
-/** A tiny observable state holder. Stage 4 adds persistence on top of `subscribe`. */
+/** A tiny observable state holder. `persist` in storage.ts saves it through `subscribe`. */
 export const createStore = (initial: AppState): Store => {
   let state = initial;
   const listeners: ((state: AppState, previous: AppState) => void)[] = [];

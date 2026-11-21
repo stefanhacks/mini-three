@@ -21,6 +21,8 @@ const SCROLLBAR = 17;
 const DRAG_THRESHOLD = 4;
 const WHEEL_LINE = 20;
 const MIN_THUMB = 24;
+const ITEM_TEXT_X = 12;
+const RECIPE_TEXT_X = 24;
 
 interface RowView {
   view: Container;
@@ -63,7 +65,9 @@ export const createScrollList = (kit: ArtKit, width: number, height: number, han
     const selected = createNineSlice(kit.pieces.rowSelected, rowWidth, ROW_HEIGHT - 1);
     const text = label("", TEXT_STYLES.row, 12, ROW_HEIGHT / 2);
     const side = label("", TEXT_STYLES.muted, rowWidth - 8, ROW_HEIGHT / 2, 1);
-    holder.addChild(header, headerHover, headerText, toggle, hover, selected, text, side);
+    // Known recipes get a check in a gutter left of the name; unknown ones leave it empty.
+    const known = iconSprite(kit.icons.check, 13, ROW_HEIGHT / 2, PALETTE.gold.light, 0.8);
+    holder.addChild(header, headerHover, headerText, toggle, hover, selected, text, side, known);
     holder.eventMode = "static";
     holder.cursor = "pointer";
 
@@ -85,6 +89,8 @@ export const createScrollList = (kit: ArtKit, width: number, height: number, han
         selected.visible = !isHeader && isSelected;
         text.visible = !isHeader;
         side.visible = !isHeader;
+        known.visible = row.kind === "recipe" && row.known;
+        text.x = row.kind === "recipe" ? RECIPE_TEXT_X : ITEM_TEXT_X;
         if (row.kind === "header") {
           headerText.text = row.label;
           toggle.texture = row.collapsed ? kit.icons.plus : kit.icons.minus;

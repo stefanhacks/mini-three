@@ -2,13 +2,16 @@ import { Container, Rectangle } from "pixi.js";
 import { CLOTH_KEY, type Recipe } from "../../data";
 import { PROFESSION_ICONS, gathererOf, itemOf, professionByKey, recipesUsingItem } from "../../data/model";
 import { type ArtKit, PALETTE, TEXT_STYLES, createStoneOverlay } from "../art";
-import { at, itemSlot, label, piece, qualityColor, tinted } from "../widgets";
+import { at, checkbox, itemSlot, label, piece, qualityColor, tinted } from "../widgets";
 
 export type Selection = { kind: "recipe"; recipe: Recipe } | { kind: "item"; itemId: number } | null;
 
 export interface DetailPane {
   view: Container;
-  show: (selection: Selection) => void;
+  /** Rebuilds the pane. `known` is the selected recipe's flag, ignored for items. */
+  show: (selection: Selection, known: boolean) => void;
+  /** Where the DOM notes field goes, in this pane's local coordinates (the framed field, inset a little). */
+  notesArea: { x: number; y: number; width: number; height: number };
 }
 
 const PAD = 18;
@@ -21,6 +24,7 @@ const USED_IN_LINE = 18;
 /** The right-hand pane: what the selected recipe needs, or where a gatherable is used, plus the notes field. */
 export const createDetailPane = (
   kit: ArtKit, width: number, height: number, onSelectItem: (itemId: number) => void,
+  onToggleKnown: (recipe: Recipe, known: boolean) => void,
 ): DetailPane => {
   const view = new Container();
   view.addChild(piece(kit, "paneDetail", width, height));
@@ -42,6 +46,12 @@ export const createDetailPane = (
     body.addChild(at(piece(kit, "divider", inner, 2), PAD, PAD + ICON_SIZE + 18));
   };
 
+  const FIELD_INSET = 6;
+  const notesArea = {
+    x: PAD + FIELD_INSET, y: notesTop + 12 + FIELD_INSET, width: inner - FIELD_INSET * 2,
+    height: NOTES_HEIGHT - FIELD_INSET * 2,
+  };
+
   const notes = () => {
     body.addChild(label("Notes:", TEXT_STYLES.label, PAD, notesTop));
     body.addChild(at(piece(kit, "field", inner, NOTES_HEIGHT), PAD, notesTop + 12));
@@ -54,7 +64,7 @@ export const createDetailPane = (
     target.on("pointertap", () => onSelectItem(itemId));
   };
 
-  const showRecipe = (recipe: Recipe) => {
+  const showRecipe = (recipe: Recipe, known: boolean) => {
     const profession = professionByKey.get(recipe.profession);
     const created = recipe.item ? itemOf(recipe.item) : null;
     // Most recipes are learnable at skill 1; the yellow and grey thresholds say when it is worth crafting.
@@ -68,6 +78,8 @@ export const createDetailPane = (
 
     const top = PAD + ICON_SIZE + 36;
     body.addChild(label("Reagents:", TEXT_STYLES.label, PAD, top));
+    const knownBox = checkbox(kit, "Known", TEXT_STYLES.row, (checked) => onToggleKnown(recipe, checked), known);
+    body.addChild(at(knownBox.view, width - PAD - 72, top - 10));
     const column = Math.floor(inner / 2);
     recipe.reagents.forEach(({ item: itemId, count }, i) => {
       const item = itemOf(itemId);
@@ -110,7 +122,8 @@ export const createDetailPane = (
 
   return {
     view,
-    show: (selection) => {
+    notesArea,
+    show: (selection, known) => {
       body.destroy({ children: true });
       body = new Container();
       view.addChild(body);
@@ -119,7 +132,7 @@ export const createDetailPane = (
         return;
       }
       if (selection.kind === "recipe") {
-        showRecipe(selection.recipe);
+        showRecipe(selection.recipe, known);
       } else {
         showItem(selection.itemId);
       }
