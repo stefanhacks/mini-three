@@ -23,10 +23,12 @@ export interface DetailPane {
   view: Container;
   /**
    * Rebuilds the pane. `known` is the selected recipe's flag (ignored for items), `note` the entry's saved note.
-   * The scroll offset is kept when the same entry is shown again (a known toggle), and reset for a new one.
+   * `editHeight` is null while reading; while editing it is the height reserved for the textarea, which replaces
+   * the note text, and the pane scrolls to keep that block in view. The scroll offset is kept when the same entry
+   * is shown again (a known toggle, a taller textarea), and reset for a new one.
    */
-  show: (selection: Selection, known: boolean, note: string) => void;
-  /** Where the note text sits right now, in pane coordinates (after scrolling), or null with no selection. */
+  show: (selection: Selection, known: boolean, note: string, editHeight: number | null) => void;
+  /** Where the note text (or the textarea over it) sits right now, in pane coordinates after scrolling, or null. */
   noteBox: () => PaneBox | null;
 }
 
@@ -35,6 +37,9 @@ interface DetailHandlers {
   onToggleKnown: (recipe: Recipe, known: boolean) => void;
   /** The Edit button beside the "Notes" label. */
   onEditNote: () => void;
+  /** Save and Cancel replace Edit while editing. */
+  onSaveNote: () => void;
+  onCancelNote: () => void;
 }
 
 const PAD = 18;
@@ -46,12 +51,20 @@ const USED_IN_LINE = 18;
 const REAGENT_COLUMN = 160;
 const SECTION_GAP = 18;
 const NOTE_LABEL_GAP = 20;
+/** How far the edit box's frame reaches outside the textarea. */
+const FIELD_FRAME = 5;
 const EDIT_WIDTH = 64;
 const EDIT_HEIGHT = 22;
+const EDIT_GAP = 6;
 /** Room the Known checkbox takes at the heading's top right. */
 const KNOWN_WIDTH = 80;
-/** The note block never shrinks below this, so the textarea that replaces it while editing has room. */
+/** The note block never shrinks below this. */
 export const NOTE_MIN_HEIGHT = 40;
+/** The textarea is at least this tall while editing. */
+export const NOTE_EDIT_MIN_HEIGHT = 84;
+/** The tallest the textarea grows in a pane of this height; longer text scrolls inside it. */
+export const noteEditMaxHeight = (paneHeight: number): number =>
+  Math.max(NOTE_EDIT_MIN_HEIGHT, Math.floor(paneHeight * 0.5));
 const WHEEL_LINE = 20;
 
 /** Shortens a single-line label with an ellipsis until it fits `maxWidth`. */
@@ -65,7 +78,7 @@ const fitWidth = (text: Text, maxWidth: number): Text => {
   return text;
 };
 
-const selectionKey = (selection: Selection): string | null => !selection ? null
+export const selectionKey = (selection: Selection): string | null => !selection ? null
   : selection.kind === "recipe" ? recipeKey(selection.recipe) : `item:${selection.itemId}`;
 
 /**
@@ -92,6 +105,8 @@ export const createDetailPane = (
   let contentHeight = 0;
   let note: PaneBox | null = null;
   let shownKey: string | null = null;
+  /** The note block as the last build placed it (a call, so the compiler doesn't narrow it to the reset value). */
+  const noteBlockBox = (): PaneBox | null => note;
   const maxScroll = () => Math.max(0, contentHeight - height);
   const scrollTo = (value: number) => {
     scroll = Math.min(Math.max(0, value), maxScroll());
@@ -129,13 +144,29 @@ export const createDetailPane = (
     return dividerY + 2;
   };
 
-  /** "Notes" label with the Edit button, then the note as wrapped text. Returns the y under the block. */
-  const noteBlock = (top: number, text: string): number => {
+  /**
+   * "Notes" label with the Edit button, then the note as wrapped text. While editing (`editHeight` set) the buttons
+   * are Save and Cancel and the text gives way to an empty block of that height, where the textarea sits.
+   * Returns the y under the block.
+   */
+  const noteBlock = (top: number, text: string, editHeight: number | null): number => {
     const labelY = top + 14;
     body.addChild(label("Notes:", TEXT_STYLES.label, PAD, labelY));
-    const edit = button(kit, "Edit", EDIT_WIDTH, handlers.onEditNote, EDIT_HEIGHT);
-    body.addChild(at(edit.view, PAD + inner - EDIT_WIDTH, labelY - EDIT_HEIGHT / 2));
+    const buttonY = labelY - EDIT_HEIGHT / 2;
     const textY = labelY + NOTE_LABEL_GAP - 6;
+    if (editHeight !== null) {
+      const save = button(kit, "Save", EDIT_WIDTH, handlers.onSaveNote, EDIT_HEIGHT);
+      const cancel = button(kit, "Cancel", EDIT_WIDTH, handlers.onCancelNote, EDIT_HEIGHT);
+      body.addChild(at(save.view, PAD + inner - EDIT_WIDTH * 2 - EDIT_GAP, buttonY));
+      body.addChild(at(cancel.view, PAD + inner - EDIT_WIDTH, buttonY));
+      // The edit box: a focused field frame around the textarea, shown only while editing.
+      body.addChild(at(piece(kit, "fieldFocus", inner + FIELD_FRAME * 2, editHeight + FIELD_FRAME * 2),
+        PAD - FIELD_FRAME, textY - FIELD_FRAME));
+      note = { x: PAD, y: textY, width: inner, height: editHeight };
+      return textY + editHeight;
+    }
+    const edit = button(kit, "Edit", EDIT_WIDTH, handlers.onEditNote, EDIT_HEIGHT);
+    body.addChild(at(edit.view, PAD + inner - EDIT_WIDTH, buttonY));
     const shown = text.trim() === ""
       ? label("No notes yet.", TEXT_STYLES.muted, PAD, textY, 0, 0)
       : label(text, TEXT_STYLES.body, PAD, textY, 0, 0);
@@ -161,7 +192,7 @@ export const createDetailPane = (
     });
   };
 
-  const showRecipe = (recipe: Recipe, known: boolean, text: string): number => {
+  const showRecipe = (recipe: Recipe, known: boolean, text: string, editHeight: number | null): number => {
     const profession = professionByKey.get(recipe.profession);
     const created = recipe.item ? itemOf(recipe.item) : null;
     // Most recipes are learnable at skill 1; the yellow and grey thresholds say when it is worth crafting.
@@ -177,7 +208,7 @@ export const createDetailPane = (
       (checked) => handlers.onToggleKnown(recipe, checked), known);
     body.addChild(at(knownBox.view, PAD + inner - 72, PAD + 2));
 
-    const top = noteBlock(underDivider, text) + SECTION_GAP;
+    const top = noteBlock(underDivider, text, editHeight) + SECTION_GAP;
     body.addChild(label("Reagents:", TEXT_STYLES.label, PAD, top));
     const columns = Math.max(2, Math.floor(inner / REAGENT_COLUMN));
     const column = Math.floor(inner / columns);
@@ -196,7 +227,7 @@ export const createDetailPane = (
     return top + 14 + Math.ceil(recipe.reagents.length / columns) * REAGENT_ROW;
   };
 
-  const showItem = (itemId: number, text: string): number => {
+  const showItem = (itemId: number, text: string, editHeight: number | null): number => {
     const item = itemOf(itemId);
     const gatherer = gathererOf(itemId);
     const subtitle = !gatherer ? "Reagent" : gatherer.key === CLOTH_KEY ? "Cloth" : `Gathered with ${gatherer.name}`;
@@ -204,7 +235,7 @@ export const createDetailPane = (
 
     const users = (recipesUsingItem.get(itemId) ?? []).slice()
       .sort((a, b) => a.profession.localeCompare(b.profession) || a.trivialLow - b.trivialLow);
-    const top = noteBlock(underDivider, text) + SECTION_GAP;
+    const top = noteBlock(underDivider, text, editHeight) + SECTION_GAP;
     body.addChild(label(`Used in ${users.length} recipe${users.length === 1 ? "" : "s"}:`, TEXT_STYLES.label,
       PAD, top));
     // The pane scrolls, so the whole list is shown.
@@ -221,7 +252,7 @@ export const createDetailPane = (
   return {
     view,
     noteBox: () => note && { ...note, y: note.y - scroll },
-    show: (selection, known, text) => {
+    show: (selection, known, text, editHeight) => {
       body.destroy({ children: true });
       body = new Container();
       content.addChild(body);
@@ -231,8 +262,8 @@ export const createDetailPane = (
         body.addChild(label("Select a recipe or a gatherable.", TEXT_STYLES.muted, width / 2, height / 2, 0.5));
         contentHeight = 0;
       } else {
-        const bottom = selection.kind === "recipe" ? showRecipe(selection.recipe, known, text)
-          : showItem(selection.itemId, text);
+        const bottom = selection.kind === "recipe" ? showRecipe(selection.recipe, known, text, editHeight)
+          : showItem(selection.itemId, text, editHeight);
         contentHeight = bottom + PAD;
       }
       if (key !== shownKey) {
@@ -240,6 +271,13 @@ export const createDetailPane = (
         scroll = 0;
       }
       shownKey = key;
+      const block = noteBlockBox();
+      if (editHeight !== null && block) {
+        // Keep the whole textarea in view when it fits, else its top.
+        const { y, height: boxHeight } = block;
+        const bottom = y + boxHeight + PAD;
+        scroll = boxHeight + PAD * 2 > height ? y - PAD : Math.min(Math.max(scroll, bottom - height), y - PAD);
+      }
       scrollTo(scroll);
     },
   };

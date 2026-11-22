@@ -1,5 +1,6 @@
 import { Container, Graphics, Rectangle, type Ticker } from "pixi.js";
-import type { Store } from "../../app/store";
+import { cancelEdit, saveEdit, startEdit } from "../../app/notesEdit";
+import type { AppState, Store } from "../../app/store";
 import type { ProfessionKey } from "../../data";
 import { PROFESSION_ICONS, itemOf, professionByKey, recipeKey, recipesByProfession } from "../../data/model";
 import {
@@ -9,7 +10,7 @@ import {
 import { keyboardShift, stripLayout } from "../layout";
 import { SLIDE_MS, tweenAt } from "../motion";
 import { at, button, checkbox, iconSprite, itemSlot, label, piece, roundIcon } from "../widgets";
-import { createDetailPane } from "./detail";
+import { NOTE_EDIT_MIN_HEIGHT, createDetailPane, noteEditMaxHeight, selectionKey } from "./detail";
 import { NOTES_TEXT_SIZE, NOTES_TEXT_SIZE_MOBILE, type NotesField } from "./notesField";
 import { createPicker } from "./picker";
 import { DESKTOP_ROWS, type RowMetrics, TOUCH_ROWS, buildRows } from "./rows";
@@ -213,8 +214,16 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
       }
       store.set({ known });
     },
-    // Editing arrives in stage 2 of docs/PLAN-inline-notes.md; until then the note is read-only.
-    onEditNote: () => undefined,
+    onEditNote: () => {
+      const key = selectionKey(store.get().selection);
+      if (key) {
+        startEdit(store, key);
+        // Inside the press, so phones raise the keyboard.
+        notesField.focus();
+      }
+    },
+    onSaveNote: () => saveEdit(store),
+    onCancelNote: () => cancelEdit(store),
   });
   const knownOnlyBox = checkbox(kit, "Known only", TEXT_STYLES.row,
     (knownOnly) => store.set({ knownOnly }), store.get().knownOnly);
@@ -384,13 +393,20 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   }
   let shift = 0;
 
-  // The notes live in a DOM textarea over the detail pane. It is moved to the pane's screen rectangle every frame
-  // (cheap when nothing moved), so it follows the popup's scale and the window size.
+  // While a note is edited, it lives in a DOM textarea over the note block of the detail pane. It is moved to the
+  // block's screen rectangle every frame (cheap when nothing moved), so it follows the popup's scale, the pane's
+  // scrolling and the window size.
   notesField.setTextSize(mobile ? NOTES_TEXT_SIZE_MOBILE : NOTES_TEXT_SIZE);
   notesField.setVisible(true);
+  let editHeight = NOTE_EDIT_MIN_HEIGHT;
+  const maxEditHeight = noteEditMaxHeight(g.detail.h);
   detail.view.onRender = () => {
-    const box = detail.noteBox();
+    const box = store.get().editing ? detail.noteBox() : null;
     if (!box) {
+      if (shift !== 0) {
+        shift = 0;
+        win.pivot.y = 0;
+      }
       return;
     }
     const { x, y, width, height } = box;
@@ -410,6 +426,27 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   };
 
   let renderedProfession: ProfessionKey | null = null;
+
+  /** Rebuilds the detail pane from the store: the entry, its saved note, and the textarea's room while editing. */
+  const showDetail = () => {
+    const { selection, known, notes, editing } = store.get();
+    const key = selectionKey(selection);
+    detail.show(selection, selection?.kind === "recipe" && known.has(recipeKey(selection.recipe)),
+      key ? notes[key] ?? "" : "", editing && editing.key === key ? editHeight : null);
+  };
+
+  /** Sizes the textarea to its text, within the minimum and maximum. True when its height changed. */
+  const fitEditor = (): boolean => {
+    const box = detail.noteBox();
+    const needed = box ? notesField.measure(box.width) : 0;
+    if (needed === 0) {
+      return false;
+    }
+    const next = Math.min(maxEditHeight, Math.max(NOTE_EDIT_MIN_HEIGHT, needed));
+    const changed = next !== editHeight;
+    editHeight = next;
+    return changed;
+  };
 
   const renderContent = (inPicker: boolean) => {
     const state = store.get();
@@ -448,10 +485,19 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     const selectedKey = !selection ? null : selection.kind === "recipe" ? recipeKey(selection.recipe)
       : `item:${selection.itemId}`;
     list.setSelected(selectedKey);
-    detail.show(selection, selection?.kind === "recipe" && state.known.has(recipeKey(selection.recipe)),
-      selectedKey ? state.notes[selectedKey] ?? "" : "");
-    // Read-only until the edit mode lands: the textarea stays closed and the note shows as text.
-    notesField.close();
+    const editing = state.editing && state.editing.key === selectedKey ? state.editing : null;
+    if (!editing) {
+      editHeight = NOTE_EDIT_MIN_HEIGHT;
+      notesField.close();
+    }
+    showDetail();
+    if (editing) {
+      notesField.open(editing.key, editing.draft);
+      // The textarea can only be measured once it is shown; a different height rebuilds the pane once more.
+      if (fitEditor()) {
+        showDetail();
+      }
+    }
   };
 
   const render = (animate: boolean) => {
@@ -468,8 +514,18 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     title.x = open ? Math.max(w / 2, BACK_X + BACK_WIDTH + 8 + title.width / 2) : w / 2;
   };
 
-  // Notes are shown as text in the detail pane now, so a saved note re-renders like any other change.
-  const unsubscribe = store.subscribe(() => render(true));
+  // Typing only changes the draft: grow the textarea if its text needs it, without rebuilding anything else.
+  const onlyDraftChanged = (state: AppState, previous: AppState): boolean =>
+    state.editing !== null && previous.editing !== null && state.editing.key === previous.editing.key
+    && (Object.keys(state) as (keyof AppState)[]).every((field) =>
+      field === "editing" || state[field] === previous[field]);
+  const unsubscribe = store.subscribe((state, previous) => {
+    if (!onlyDraftChanged(state, previous)) {
+      render(true);
+    } else if (fitEditor()) {
+      showDetail();
+    }
+  });
   if (store.get().view === "picker") {
     picker.open(carry?.picked ?? store.get().chosen);
   }
