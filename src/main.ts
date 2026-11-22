@@ -19,6 +19,8 @@ const MAX_RESOLUTION = 2;
 const CORNER = 16;
 /** Space around the phone frame, about the height of its buttons, so it reads as a window rather than the page. */
 const MOBILE_MARGIN = MOBILE_BUTTON_HEIGHT;
+/** Top and bottom get twice the side margin. */
+const MOBILE_MARGIN_Y = MOBILE_MARGIN * 2;
 const FOOTPRINT = { width: WINDOW_WIDTH + TABS_WIDTH + CORNER, height: WINDOW_HEIGHT + CORNER };
 
 const app = new Application();
@@ -66,7 +68,7 @@ const place = (width: number, height: number) => {
   }
   if (mode === "mobile") {
     popup.view.scale.set(1);
-    popup.view.position.set(MOBILE_MARGIN, MOBILE_MARGIN);
+    popup.view.position.set(MOBILE_MARGIN, MOBILE_MARGIN_Y);
     return;
   }
   const scale = desktopScale(width, height, FOOTPRINT);
@@ -87,7 +89,7 @@ const build = (width: number, height: number) => {
     notesField,
     searchField,
     layout: mode === "mobile"
-      ? { mode, width: width - MOBILE_MARGIN * 2, height: height - MOBILE_MARGIN * 2 }
+      ? { mode, width: width - MOBILE_MARGIN * 2, height: height - MOBILE_MARGIN_Y * 2 }
       : { mode: "desktop" },
   }, carry);
   app.stage.addChild(popup.view);
