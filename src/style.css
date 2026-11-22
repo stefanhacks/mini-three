@@ -28,3 +28,8 @@ canvas {
   color: #8f877b;
   opacity: 1;
 }
+
+/* The upright notice is a flex column only while shown; the hidden attribute must win over it. */
+.upright-notice:not([hidden]) {
+  display: flex;
+}

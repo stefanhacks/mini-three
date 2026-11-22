@@ -6,7 +6,8 @@ import { fromSaved, loadSaved, persist } from "./app/storage";
 import { createStore } from "./app/store";
 import { professions } from "./data";
 import { PALETTE, createArtKit, createBackdrop, loadFonts } from "./ui/art";
-import { type LayoutMode, desktopScale, layoutMode } from "./ui/layout";
+import { type LayoutMode, desktopScale, layoutMode, needsUpright } from "./ui/layout";
+import { createUprightNotice } from "./ui/uprightNotice";
 import { selectionKey } from "./ui/popup/detail";
 import { createNotesField } from "./ui/popup/notesField";
 import {
@@ -100,8 +101,20 @@ const build = (width: number, height: number) => {
 const typing = (): boolean => document.activeElement === notesField.element
   || document.activeElement === searchField.element;
 
+// A sideways phone is too short for the frame: cover it with a request to turn the phone upright. The app keeps
+// running underneath, so turning back restores everything as it was.
+const coarsePointer = window.matchMedia("(pointer: coarse)");
+const uprightNotice = createUprightNotice();
+document.body.appendChild(uprightNotice);
+
 const layout = (width: number, height: number) => {
   backdrop.resize(width, height);
+  const upright = needsUpright(width, height, coarsePointer.matches);
+  if (upright && uprightNotice.hidden && document.activeElement instanceof HTMLElement) {
+    // Close the keyboard: the fields under the notice can't be reached.
+    document.activeElement.blur();
+  }
+  uprightNotice.hidden = !upright;
   const next = layoutMode(width, height, FOOTPRINT);
   // Some phones shrink the window for the on-screen keyboard instead of only the visual viewport. While a note
   // is being typed (or a search), a height-only change is the keyboard: keep the frame and let the keyboard handling

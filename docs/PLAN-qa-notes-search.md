@@ -8,3 +8,7 @@ PRs #2 (inline notes, known locations) and #3 (search, picker arrow, phone margi
 | Code review of everything since #1 (`7a7ab7f..808a322`) | code-review skill | high |
 
 Fixes go in as `pcr:` commits. No rollback of the merged PRs.
+
+## Sideways phones
+
+Real-phone testing showed a sideways phone has only about 260 to 360 px of height, too little for the frame (the picker lost its toggles). A scaled-down desktop window would be about 0.45x, with unreadable text. Phones held sideways and shorter than 480 px (touch screens only) now show a "Turn your phone upright" notice over the app. Laptops, desktop browsers and tablets are not affected.
