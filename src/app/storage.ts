@@ -88,6 +88,7 @@ export const fromSaved = (data: SavedData): AppState => ({
   detailOpen: false,
   known: new Set(data.known),
   knownOnly: data.knownOnly,
+  search: null,
   notes: data.notes,
   editing: null,
 });

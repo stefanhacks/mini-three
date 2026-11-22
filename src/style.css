@@ -22,3 +22,9 @@ canvas {
   user-select: none;
   -webkit-user-select: none;
 }
+
+/* The search field is a DOM input (src/ui/popup/searchField.ts); its placeholder matches the muted text colour. */
+.search-field::placeholder {
+  color: #8f877b;
+  opacity: 1;
+}

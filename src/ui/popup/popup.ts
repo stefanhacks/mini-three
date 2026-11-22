@@ -1,7 +1,7 @@
 import { Container, Graphics, Rectangle, type Ticker } from "pixi.js";
 import { cancelEdit, saveEdit, setKnownDraft, startEdit } from "../../app/notesEdit";
 import type { AppState, Store } from "../../app/store";
-import type { ProfessionKey } from "../../data";
+import type { Profession, ProfessionKey, Recipe } from "../../data";
 import { PROFESSION_ICONS, itemOf, professionByKey, recipeKey, recipesByProfession } from "../../data/model";
 import {
   type ArtKit, FRAME_TITLE_HEIGHT, PALETTE, SHADOW_SPREAD, TAB_GLOW, TEXT_STYLES, createNineSlice,
@@ -15,6 +15,7 @@ import { NOTES_TEXT_SIZE, NOTES_TEXT_SIZE_MOBILE, type NotesField } from "./note
 import { createPicker } from "./picker";
 import { DESKTOP_ROWS, type RowMetrics, TOUCH_ROWS, buildRows } from "./rows";
 import { createScrollList } from "./scrollList";
+import { SEARCH_TEXT_SIZE, type SearchField } from "./searchField";
 
 export const WINDOW_WIDTH = 720;
 export const WINDOW_HEIGHT = 580;
@@ -24,6 +25,9 @@ export const TABS_WIDTH = 48 + TAB_GLOW * 2 - 10;
 const TAB_SIZE = 48;
 const TAB_STEP = 54;
 const TABS_TOP = 52;
+/** The picker arrow above the desktop side tabs. */
+const ARROW_WIDTH = 40;
+const ARROW_HEIGHT = 28;
 const LIST_WIDTH = 290;
 const CONTENT_TOP = 74;
 const PORTRAIT = 72;
@@ -36,13 +40,16 @@ const MOBILE_PORTRAIT_SCALE = 0.66;
 export const MOBILE_BUTTON_HEIGHT = 28;
 const BACK_X = 48;
 const BACK_WIDTH = 72;
-/** From this frame width, the summary bar fits between Known only and Professions instead of taking its own row. */
+/** From this frame width, the summary bar fits between Known only and Search instead of taking its own row. */
 const WIDE_FRAME = 560;
 /** Smallest tab cell in the mobile strip, still a comfortable touch target. */
 const MIN_TAB_CELL = 44;
 const SHORT_FRAME = 420;
 /** Room kept between the notes field and the top of the on-screen keyboard. */
 const KEYBOARD_MARGIN = 8;
+
+/** What the list is filtered by: the trimmed text of the open search field, "" when closed or blank. */
+const searchQuery = (state: AppState): string => (state.search ?? "").trim();
 
 /** Desktop: the fixed-size window, scaled by main.ts. Mobile: a frame of the given size, at scale 1. */
 export type PopupLayout = { mode: "desktop" } | { mode: "mobile"; width: number; height: number };
@@ -51,6 +58,8 @@ export interface PopupEnv {
   ticker: Ticker;
   /** The DOM notes field. It outlives popups, so a rebuild keeps its text, caret and focus. */
   notesField: NotesField;
+  /** The DOM search field. Like the notes field, it outlives popups so a rebuild keeps its text and focus. */
+  searchField: SearchField;
   layout: PopupLayout;
 }
 
@@ -82,6 +91,8 @@ interface Geometry {
   portrait: { x: number; y: number; scale: number };
   bar: Box;
   knownOnly: { x: number; y: number };
+  /** While search is open: the field, in the list's first row slot. */
+  search: Box;
   list: Box;
   detail: Box;
   picker: Box;
@@ -90,6 +101,13 @@ interface Geometry {
   strip: (Box & { perRow: number; cell: number }) | null;
   rows: RowMetrics;
 }
+
+/**
+ * Where the open search field sits: the list's first row slot, inside its pane and clear of its scrollbar. The rows
+ * move down by `searchInset` to make room.
+ */
+const searchSlot = (list: Box, height: number): Box => ({ x: list.x + 6, y: list.y + 6, w: list.w - 30, h: height });
+const searchInset = (field: Box): number => field.h + 6;
 
 const desktopGeometry = (): Geometry => {
   const w = WINDOW_WIDTH;
@@ -101,6 +119,7 @@ const desktopGeometry = (): Geometry => {
     portrait: { x: -16, y: -16, scale: 1 },
     bar: { x: 120, y: 42, w: 440, h: 18 },
     knownOnly: { x: 20, y: CONTENT_TOP + 6 },
+    search: searchSlot({ x: 16, y: CONTENT_TOP + 32, w: LIST_WIDTH, h: contentHeight - 32 }, 22),
     list: { x: 16, y: CONTENT_TOP + 32, w: LIST_WIDTH, h: contentHeight - 32 },
     detail: { x: LIST_WIDTH + 24, y: CONTENT_TOP, w: w - LIST_WIDTH - 40, h: contentHeight },
     picker: { x: 16, y: CONTENT_TOP, w: w - 32, h: contentHeight },
@@ -112,13 +131,14 @@ const desktopGeometry = (): Geometry => {
 
 /**
  * The mobile frame, top to bottom: title strip (portrait, Back, title), the tab strip, the summary bar, a row with
- * Known only and Professions (the bar joins that row on wide frames), and the list down to the bottom. The detail
- * pane and the picker cover everything under the title strip.
+ * Known only and Search (the bar joins that row on wide frames), and the list down to the bottom. Open search sits
+ * in the list's first row slot. The detail pane and the picker cover everything under the title strip.
  */
 const mobileGeometry = (w: number, h: number, tabCount: number): Geometry => {
   const inner = w - MOBILE_PAD * 2;
   // Short (landscape) frames get slightly smaller tabs: their height goes to the list.
-  const tabs = stripLayout(tabCount, inner, h < SHORT_FRAME ? MIN_TAB_CELL : TAB_STEP, MIN_TAB_CELL);
+  // One extra cell: the picker arrow leads the strip.
+  const tabs = stripLayout(tabCount + 1, inner, h < SHORT_FRAME ? MIN_TAB_CELL : TAB_STEP, MIN_TAB_CELL);
   const strip = { x: MOBILE_PAD, y: MOBILE_CONTENT_TOP + 2, w: inner, h: tabs.rows * tabs.cell, perRow: tabs.perRow,
     cell: tabs.cell };
   const wide = w >= WIDE_FRAME;
@@ -127,17 +147,20 @@ const mobileGeometry = (w: number, h: number, tabCount: number): Geometry => {
   const bar = wide ? { x: MOBILE_PAD + 130, y: controlsY + 5, w: inner - 260, h: 18 }
     : { x: MOBILE_PAD, y: barRow, w: inner, h: 18 };
   const listY = controlsY + MOBILE_BUTTON_HEIGHT + 6;
+  const buttonX = w - MOBILE_PAD - 120;
+  const knownOnly = { x: MOBILE_PAD + 4, y: controlsY + 4 };
   const cover = { x: MOBILE_PAD, y: MOBILE_CONTENT_TOP, w: inner, h: h - MOBILE_PAD - MOBILE_CONTENT_TOP };
   return {
     w,
     h,
     portrait: { x: -6, y: -6, scale: MOBILE_PORTRAIT_SCALE },
     bar,
-    knownOnly: { x: MOBILE_PAD + 4, y: controlsY + 4 },
+    knownOnly,
+    search: searchSlot({ x: MOBILE_PAD, y: listY, w: inner, h: h - MOBILE_PAD - listY }, MOBILE_BUTTON_HEIGHT),
     list: { x: MOBILE_PAD, y: listY, w: inner, h: h - MOBILE_PAD - listY },
     detail: cover,
     picker: cover,
-    professions: { x: w - MOBILE_PAD - 120, y: controlsY, w: 120, h: MOBILE_BUTTON_HEIGHT },
+    professions: { x: buttonX, y: controlsY, w: 120, h: MOBILE_BUTTON_HEIGHT },
     strip,
     rows: TOUCH_ROWS,
   };
@@ -152,7 +175,7 @@ const mobileGeometry = (w: number, h: number, tabCount: number): Geometry => {
  * pane in over it from the right, with a Back button in the title strip.
  */
 export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: PopupCarry): Popup => {
-  const { ticker, notesField, layout } = env;
+  const { ticker, notesField, searchField, layout } = env;
   const mobile = layout.mode === "mobile";
   const g = layout.mode === "mobile" ? mobileGeometry(layout.width, layout.height, store.get().chosen.length)
     : desktopGeometry();
@@ -194,6 +217,10 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
       }
     },
     onToggle: (id) => {
+      // Matches show in collapsed sections too while searching, so a toggle would change what nobody can see.
+      if (searchQuery(store.get()) !== "") {
+        return;
+      }
       const collapsed = new Set(store.get().collapsed);
       if (collapsed.has(id)) {
         collapsed.delete(id);
@@ -220,10 +247,25 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   });
   const knownOnlyBox = checkbox(kit, "Known only", TEXT_STYLES.row,
     (knownOnly) => store.set({ knownOnly }), store.get().knownOnly);
-  const professionsButton = button(kit, "Professions", g.professions.w, () => {
+  // Search closes when the picker opens: its list is not the one being filtered.
+  const openPicker = () => {
     picker.open(store.get().chosen);
-    store.set({ view: "picker", detailOpen: false });
+    store.set({ view: "picker", detailOpen: false, search: null });
+  };
+  // Search is a toggle: open, it reads "Close" and keeps the pressed look.
+  const searchButton = button(kit, "Search", g.professions.w, () => {
+    if (store.get().search === null) {
+      store.set({ search: "" });
+      // Inside the press, so phones raise the keyboard.
+      searchField.focus();
+    } else {
+      store.set({ search: null });
+    }
   }, g.professions.h);
+  // In the first row under the search field's slot (search is always open when nothing matches).
+  const noMatches = label("No matches.", TEXT_STYLES.muted, g.list.x + (g.list.w - 17) / 2,
+    g.search.y + searchInset(g.search) + g.rows.row / 2, 0.5);
+  noMatches.visible = false;
 
   const browse = new Container();
   // Mobile: everything the detail pane covers, hidden while it is fully open.
@@ -231,11 +273,11 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   const slider = new Container();
   if (mobile) {
     under.addChild(tabs, barTrack, barText);
-    under.addChild(at(list.view, g.list.x, g.list.y));
+    under.addChild(at(list.view, g.list.x, g.list.y), noMatches);
     under.addChild(at(knownOnlyBox.view, g.knownOnly.x, g.knownOnly.y));
-    under.addChild(at(professionsButton.view, g.professions.x, g.professions.y));
+    under.addChild(at(searchButton.view, g.professions.x, g.professions.y));
     // A finger-sized target around the small box.
-    knownOnlyBox.view.hitArea = new Rectangle(-8, -8, knownOnlyBox.view.width + 16, 36);
+    knownOnlyBox.view.hitArea = new Rectangle(-8, -5, knownOnlyBox.view.width + 16, 30);
     browse.addChild(under);
     // The pane slides in from under the frame's right edge; the mask hides it outside the frame.
     slider.addChild(at(detail.view, g.detail.x, g.detail.y));
@@ -246,9 +288,9 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     detail.view.eventMode = "static";
     detail.view.hitArea = new Rectangle(0, 0, g.detail.w, g.detail.h);
   } else {
-    browse.addChild(at(list.view, g.list.x, g.list.y));
+    browse.addChild(at(list.view, g.list.x, g.list.y), noMatches);
     browse.addChild(at(detail.view, g.detail.x, g.detail.y));
-    // The list's top strip, where the game has search and filter, holds the known-only filter.
+    // The list's top strip, where the game has search and filter, holds the known-only filter and the search field.
     browse.addChild(at(knownOnlyBox.view, g.knownOnly.x, g.knownOnly.y));
   }
   win.addChild(browse);
@@ -264,7 +306,7 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   win.addChild(at(picker.view, g.picker.x, g.picker.y));
 
   if (!mobile) {
-    win.addChild(at(professionsButton.view, g.professions.x, g.professions.y));
+    win.addChild(at(searchButton.view, g.professions.x, g.professions.y));
   }
 
   const back = button(kit, "Back", BACK_WIDTH, () => store.set({ detailOpen: false }), 22);
@@ -278,11 +320,29 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     back.view.addChild(chevron);
   }
 
+  /** The picker arrow: a tab-framed left chevron that opens the profession picker. */
+  const pickerArrow = (width: number, height: number): Container => {
+    const arrow = new Container();
+    arrow.addChild(createNineSlice(kit.pieces.tab, width, height));
+    const chevron = iconSprite(kit.icons.chevronRight, width / 2, height / 2, PALETTE.text.header, 1.25);
+    chevron.scale.x = -1.25;
+    arrow.addChild(chevron);
+    arrow.eventMode = "static";
+    arrow.cursor = "pointer";
+    arrow.hitArea = new Rectangle(0, 0, width, height);
+    arrow.on("pointertap", openPicker);
+    return arrow;
+  };
+
   const tabPressed = (key: ProfessionKey) => store.set({ active: key, selection: null, detailOpen: false,
     view: "list" });
 
-  const renderTabs = (chosen: ProfessionKey[], active: ProfessionKey | null) => {
+  const renderTabs = (chosen: ProfessionKey[], active: ProfessionKey | null, inPicker: boolean) => {
     tabs.removeChildren().forEach((child) => child.destroy({ children: true }));
+    if (!inPicker) {
+      // Above the first tab, left-pointing: back to the profession picker.
+      tabs.addChild(at(pickerArrow(ARROW_WIDTH, ARROW_HEIGHT), w - 10, TABS_TOP - ARROW_HEIGHT - 6));
+    }
     const step = Math.min(TAB_STEP, Math.floor((h - TABS_TOP - 20) / Math.max(1, chosen.length)));
     const scale = Math.min(1, step / TAB_STEP);
     chosen.forEach((key, i) => {
@@ -300,7 +360,7 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   };
 
   /** Mobile: the chosen professions as square tabs in one or two rows, left to right. */
-  const renderStrip = (chosen: ProfessionKey[], active: ProfessionKey | null) => {
+  const renderStrip = (chosen: ProfessionKey[], active: ProfessionKey | null, inPicker: boolean) => {
     tabs.removeChildren().forEach((child) => child.destroy({ children: true }));
     const strip = g.strip;
     if (!strip) {
@@ -308,7 +368,13 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     }
     const scale = strip.cell / TAB_STEP;
     const inset = (TAB_STEP - TAB_SIZE) / 2;
-    chosen.forEach((key, i) => {
+    if (!inPicker) {
+      // The first cell, left of the tabs: back to the profession picker.
+      const size = TAB_SIZE * scale;
+      tabs.addChild(at(pickerArrow(size, size), strip.x + inset * scale, strip.y + inset * scale));
+    }
+    chosen.forEach((key, slot) => {
+      const i = slot + 1;
       const tab = new Container();
       tab.addChild(at(createNineSlice(kit.pieces[key === active ? "tabActive" : "tab"], TAB_SIZE + TAB_GLOW * 2,
         TAB_SIZE + TAB_GLOW * 2), -TAB_GLOW, -TAB_GLOW));
@@ -383,6 +449,7 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     viewport?.addEventListener("resize", readBand);
     viewport?.addEventListener("scroll", readBand);
     notesField.element.addEventListener("focusout", resetScroll);
+    searchField.element.addEventListener("focusout", resetScroll);
   }
   let shift = 0;
 
@@ -391,6 +458,7 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   // scrolling and the window size.
   notesField.setTextSize(mobile ? NOTES_TEXT_SIZE_MOBILE : NOTES_TEXT_SIZE);
   notesField.setVisible(true);
+  searchField.setTextSize(mobile ? NOTES_TEXT_SIZE_MOBILE : SEARCH_TEXT_SIZE);
   let editHeight = NOTE_EDIT_MIN_HEIGHT;
   const maxEditHeight = noteEditMaxHeight(g.detail.h);
   detail.view.onRender = () => {
@@ -418,7 +486,16 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     notesField.place(tx + x * a, ty + y * a, width, height, a);
   };
 
+  // The search input sits over the list's top strip, moved there every frame from the window's transform like the
+  // notes field (cheap when nothing moved). It hides while the mobile detail pane covers the list.
+  win.onRender = () => {
+    searchField.setVisible(slideX === away);
+    const { a, tx, ty } = win.worldTransform;
+    searchField.place(tx + g.search.x * a, ty + g.search.y * a, g.search.w, g.search.h, a);
+  };
+
   let renderedProfession: ProfessionKey | null = null;
+  let renderedQuery = "";
 
   /** Rebuilds the detail pane from the store: the entry, its saved note, and the textarea's room while editing. */
   const showDetail = () => {
@@ -444,16 +521,35 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     return changed;
   };
 
+  /** Rebuilds the list rows from the store; a new profession or query goes back to the top. */
+  const renderList = (profession: Profession, recipes: Recipe[], state: AppState): string | null => {
+    const query = searchQuery(state);
+    const rows = buildRows(profession, state.collapsed, { recipes, itemOf, recipeKey },
+      { known: state.known, knownOnly: state.knownOnly, query });
+    list.setRows(rows, renderedProfession !== profession.key || renderedQuery !== query);
+    renderedProfession = profession.key;
+    renderedQuery = query;
+    noMatches.visible = rows.length === 0 && query !== "";
+    const selection = state.selection;
+    const selectedKey = !selection ? null : selection.kind === "recipe" ? recipeKey(selection.recipe)
+      : `item:${selection.itemId}`;
+    list.setSelected(selectedKey);
+    return selectedKey;
+  };
+
   const renderContent = (inPicker: boolean) => {
     const state = store.get();
     if (mobile) {
-      renderStrip(state.chosen, state.active);
+      renderStrip(state.chosen, state.active, inPicker);
     } else {
-      renderTabs(state.chosen, state.active);
+      renderTabs(state.chosen, state.active, inPicker);
     }
     picker.view.visible = inPicker;
     browse.visible = !inPicker;
-    professionsButton.view.visible = !inPicker;
+    searchButton.view.visible = !inPicker;
+    const searching = state.search !== null && !inPicker;
+    searchButton.setLatched(searching);
+    searchButton.setCaption(searching ? "Close" : "Search");
 
     const profession = state.active ? professionByKey.get(state.active) : undefined;
     portrait.removeChildren().forEach((child) => child.destroy({ children: true }));
@@ -461,6 +557,7 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
       title.text = "Professions";
       barText.text = `${state.chosen.length} of 14 chosen`;
       notesField.close();
+      searchField.close();
       return;
     }
     portrait.addChild(roundIcon(PROFESSION_ICONS[profession.key], PORTRAIT - 20));
@@ -472,15 +569,13 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
       profession.gatherables.length > 0 ? `${profession.gatherables.length} gatherables` : "",
     ].filter(Boolean).join("  ·  ");
     knownOnlyBox.set(state.knownOnly);
-
-    const rows = buildRows(profession, state.collapsed, { recipes, itemOf, recipeKey },
-      { known: state.known, knownOnly: state.knownOnly });
-    list.setRows(rows, renderedProfession !== profession.key);
-    renderedProfession = profession.key;
-    const selection = state.selection;
-    const selectedKey = !selection ? null : selection.kind === "recipe" ? recipeKey(selection.recipe)
-      : `item:${selection.itemId}`;
-    list.setSelected(selectedKey);
+    list.setTopInset(searching ? searchInset(g.search) : 0);
+    if (searching) {
+      searchField.open(state.search ?? "");
+    } else {
+      searchField.close();
+    }
+    const selectedKey = renderList(profession, recipes, state);
     const editing = state.editing && state.editing.key === selectedKey ? state.editing : null;
     if (!editing) {
       editHeight = NOTE_EDIT_MIN_HEIGHT;
@@ -515,8 +610,16 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     state.editing !== null && previous.editing !== null && state.editing.key === previous.editing.key
     && (Object.keys(state) as (keyof AppState)[]).every((field) =>
       field === "editing" || state[field] === previous[field]);
+  // Typing in the search field only changes its text: refilter the list, and leave the detail pane alone.
+  const onlySearchTextChanged = (state: AppState, previous: AppState): boolean =>
+    state.search !== null && previous.search !== null
+    && (Object.keys(state) as (keyof AppState)[]).every((field) =>
+      field === "search" || state[field] === previous[field]);
   const unsubscribe = store.subscribe((state, previous) => {
-    if (!onlyDraftChanged(state, previous)) {
+    const profession = state.active ? professionByKey.get(state.active) : undefined;
+    if (onlySearchTextChanged(state, previous) && profession && state.view === "list") {
+      renderList(profession, recipesByProfession.get(profession.key) ?? [], state);
+    } else if (!onlyDraftChanged(state, previous)) {
       render(true);
     } else if (fitEditor()) {
       showDetail();
@@ -543,6 +646,7 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
       viewport?.removeEventListener("resize", readBand);
       viewport?.removeEventListener("scroll", readBand);
       notesField.element.removeEventListener("focusout", resetScroll);
+      searchField.element.removeEventListener("focusout", resetScroll);
       win.destroy({ children: true });
     },
   };
