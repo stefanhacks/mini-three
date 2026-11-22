@@ -12,6 +12,7 @@ import { createNotesField } from "./ui/popup/notesField";
 import {
   MOBILE_BUTTON_HEIGHT, type Popup, TABS_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, createPopup,
 } from "./ui/popup/popup";
+import { createSearchField } from "./ui/popup/searchField";
 
 const MAX_RESOLUTION = 2;
 // Room for the portrait medallion that pokes out of the top-left corner.
@@ -47,6 +48,7 @@ const notesField = createNotesField({
   onSave: () => saveEdit(store),
   onCancel: () => cancelEdit(store),
 });
+const searchField = createSearchField((text) => store.set({ search: text }));
 // Leaving the entry being edited cancels the edit. Before any popup subscribes, so views never see a stale edit.
 cancelEditOnLeave(store, (state) => selectionKey(state.selection));
 
@@ -83,6 +85,7 @@ const build = (width: number, height: number) => {
   popup = createPopup(kit, store, {
     ticker: app.ticker,
     notesField,
+    searchField,
     layout: mode === "mobile"
       ? { mode, width: width - MOBILE_MARGIN * 2, height: height - MOBILE_MARGIN * 2 }
       : { mode: "desktop" },
@@ -91,13 +94,17 @@ const build = (width: number, height: number) => {
   place(width, height);
 };
 
+/** A DOM field has focus: on phones that is the on-screen keyboard being open. */
+const typing = (): boolean => document.activeElement === notesField.element
+  || document.activeElement === searchField.element;
+
 const layout = (width: number, height: number) => {
   backdrop.resize(width, height);
   const next = layoutMode(width, height, FOOTPRINT);
-  // Some phones shrink the window for the on-screen keyboard instead of only the visual viewport. While a note is
-  // being typed, a height-only change is the keyboard: keep the frame and let the keyboard handling lift it.
-  const keyboard = next === "mobile" && mode === "mobile" && width === built.width
-    && document.activeElement === notesField.element;
+  // Some phones shrink the window for the on-screen keyboard instead of only the visual viewport. While a note
+  // is being typed (or a search), a height-only change is the keyboard: keep the frame and let the keyboard handling
+  // lift it.
+  const keyboard = next === "mobile" && mode === "mobile" && width === built.width && typing();
   if (next !== mode || (next === "mobile" && !keyboard && (width !== built.width || height !== built.height))) {
     const modeChanged = next !== mode;
     mode = next;
@@ -113,7 +120,9 @@ const backHistory = syncBackHistory(store, () => mode === "mobile");
 app.renderer.on("resize", layout);
 layout(app.screen.width, app.screen.height);
 // A resize skipped while typing is applied once the field lets go.
-notesField.element.addEventListener("blur", () => layout(app.screen.width, app.screen.height));
+[notesField.element, searchField.element].forEach((field) => {
+  field.addEventListener("blur", () => layout(app.screen.width, app.screen.height));
+});
 
 // The mobile tab strip is sized for the chosen professions: rebuild when they change, before the next frame.
 store.subscribe((state, previous) => {
@@ -138,8 +147,13 @@ app.stage.on("pointertap", (event) => {
   }
 });
 window.addEventListener("keydown", (event) => {
-  if (event.key.toLowerCase() === "b" && !(event.target instanceof HTMLTextAreaElement)) {
+  const inField = event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement;
+  if (event.key.toLowerCase() === "b" && !inField) {
     backdrop.next();
+  } else if (event.key === "Escape" && !event.isComposing && !(event.target instanceof HTMLTextAreaElement)
+    && store.get().search !== null) {
+    // The notes field takes its own Escape (cancel the edit); anywhere else it closes search and clears the filter.
+    store.set({ search: null });
   }
 });
 

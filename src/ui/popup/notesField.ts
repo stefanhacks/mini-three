@@ -30,9 +30,9 @@ export const NOTES_TEXT_SIZE_MOBILE = 16;
 /** How long after focus() the emulated mouse events of the same tap are still expected. */
 const FOCUS_GUARD_MS = 700;
 
-const font = (size: number): string => `${size}px/${size + 4}px ${BODY_FONT.map(quote).join(", ")}`;
+export const font = (size: number): string => `${size}px/${size + 4}px ${BODY_FONT.map(quote).join(", ")}`;
 
-const hex = (colour: number): string => `#${colour.toString(16).padStart(6, "0")}`;
+export const hex = (colour: number): string => `#${colour.toString(16).padStart(6, "0")}`;
 // Pixi's TextStyle quotes the shared BODY_FONT entries in place once text exists, so strip quotes before adding them.
 const quote = (family: string): string => {
   const bare = family.replace(/["']/g, "");

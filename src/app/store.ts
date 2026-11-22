@@ -15,6 +15,11 @@ export interface AppState {
   known: ReadonlySet<string>;
   /** Show only known recipes in the list. Saved. */
   knownOnly: boolean;
+  /**
+   * The search field: null while closed, else its text (blank shows everything). Filters the active tab's list.
+   * Transient: never saved, kept across tabs and layout rebuilds, closed by the profession picker.
+   */
+  search: string | null;
   /** Notes by `recipeKey` (recipes) or `item:<id>` (items). Saved. */
   notes: Readonly<Record<string, string>>;
   /**

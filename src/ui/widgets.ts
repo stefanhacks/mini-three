@@ -88,6 +88,9 @@ export const roundIcon = (icon: string | null, diameter: number): Container => {
 export interface Button {
   view: Container;
   setEnabled: (enabled: boolean) => void;
+  setCaption: (text: string) => void;
+  /** Holds the pressed look (a toggle that is on) until set back; hover and press feedback pause meanwhile. */
+  setLatched: (latched: boolean) => void;
 }
 
 /** A red WoW-style button with hover, pressed and disabled states. */
@@ -103,6 +106,7 @@ export const button = (kit: ArtKit, text: string, width: number, onPress: () => 
   const caption = label(text, TEXT_STYLES.button, width / 2, height / 2, 0.5);
   view.addChild(caption);
   let enabled = true;
+  let latched = false;
   let current: keyof typeof states = "normal";
   const show = (state: keyof typeof states) => {
     current = state;
@@ -114,10 +118,10 @@ export const button = (kit: ArtKit, text: string, width: number, onPress: () => 
   show("normal");
   view.eventMode = "static";
   view.cursor = "pointer";
-  view.on("pointerover", () => enabled && show("hover"));
-  view.on("pointerout", () => enabled && show("normal"));
-  view.on("pointerdown", () => enabled && show("down"));
-  view.on("pointerup", () => enabled && current === "down" && show("hover"));
+  view.on("pointerover", () => enabled && !latched && show("hover"));
+  view.on("pointerout", () => enabled && !latched && show("normal"));
+  view.on("pointerdown", () => enabled && !latched && show("down"));
+  view.on("pointerup", () => enabled && !latched && current === "down" && show("hover"));
   view.on("pointertap", () => {
     if (enabled) {
       onPress();
@@ -128,7 +132,16 @@ export const button = (kit: ArtKit, text: string, width: number, onPress: () => 
     setEnabled: (value) => {
       enabled = value;
       view.cursor = value ? "pointer" : "default";
-      show(value ? "normal" : "disabled");
+      show(!value ? "disabled" : latched ? "down" : "normal");
+    },
+    setCaption: (value) => {
+      caption.text = value;
+    },
+    setLatched: (value) => {
+      latched = value;
+      if (enabled) {
+        show(value ? "down" : "normal");
+      }
     },
   };
 };

@@ -53,4 +53,42 @@ describe("buildRows", () => {
     expect(buildRows(mining, new Set(), sources, { known: new Set(), knownOnly: true }).map((row) => row.kind))
       .toEqual(["header", "item", "item"]);
   });
+
+  describe("with a query", () => {
+    const labels = (rows: ReturnType<typeof buildRows>) => rows.map((row) => row.kind === "header" ? `# ${row.label}`
+      : row.kind === "item" ? names[row.itemId] : row.recipe.name);
+    // Smelting turns Copper Ore into a bar: the recipes reference ore items by reagent.
+    const withReagents = {
+      ...sources,
+      recipes: [
+        { ...recipe(10, 1, 50, "Smelt Tin"), reagents: [{ item: 2, count: 1 }] },
+        { ...recipe(11, 1, 1, "Fundição Élfica"), reagents: [{ item: 3, count: 1 }] },
+      ],
+    };
+
+    it("ignores case and accents, and drops the sections left without matches", () => {
+      expect(labels(buildRows(mining, new Set(), withReagents, { ...none, query: "FUNDICAO" })))
+        .toEqual(["# Smelting", "Fundição Élfica"]);
+      expect(labels(buildRows(mining, new Set(), withReagents, { ...none, query: "  élfica " })))
+        .toEqual(["# Smelting", "Fundição Élfica"]);
+      expect(buildRows(mining, new Set(), withReagents, { ...none, query: "zzz" })).toEqual([]);
+    });
+
+    it("matches a recipe by its reagents, and gatherables by their own name", () => {
+      expect(labels(buildRows(mining, new Set(), withReagents, { ...none, query: "copper" })))
+        .toEqual(["# Gathered", "Copper Ore", "# Smelting", "Fundição Élfica"]);
+    });
+
+    it("shows matches in collapsed sections, and still applies known only", () => {
+      const collapsed = new Set(["mining:gathered", "mining:cat:1"]);
+      expect(labels(buildRows(mining, collapsed, withReagents, { ...none, query: "ore" })))
+        .toEqual(["# Gathered", "Copper Ore", "Tin Ore", "# Smelting", "Fundição Élfica", "Smelt Tin"]);
+      const known = new Set(["mining:10"]);
+      expect(labels(buildRows(mining, collapsed, withReagents, { known, knownOnly: true, query: "ore" })))
+        .toEqual(["# Gathered", "Copper Ore", "Tin Ore", "# Smelting", "Smelt Tin"]);
+      // A blank query is no query: the collapsed state holds.
+      expect(buildRows(mining, collapsed, withReagents, { ...none, query: "  " }).every((row) => row.kind === "header"))
+        .toBe(true);
+    });
+  });
 });
