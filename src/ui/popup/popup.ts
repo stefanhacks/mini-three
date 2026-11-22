@@ -38,9 +38,6 @@ const MOBILE_PAD = 12;
 const MOBILE_CONTENT_TOP = 42;
 const MOBILE_PORTRAIT_SCALE = 0.66;
 export const MOBILE_BUTTON_HEIGHT = 28;
-/** Width of the "Known only" checkbox with its label, to lay the search field out beside it. */
-const KNOWN_ONLY_WIDTH = 100;
-const SEARCH_GAP = 8;
 const BACK_X = 48;
 const BACK_WIDTH = 72;
 /** From this frame width, the summary bar fits between Known only and Search instead of taking its own row. */
@@ -94,9 +91,8 @@ interface Geometry {
   portrait: { x: number; y: number; scale: number };
   bar: Box;
   knownOnly: { x: number; y: number };
-  /** While search is open: where the field goes, and where "Known only" moves to beside it. */
+  /** While search is open: the field, in the list's first row slot. */
   search: Box;
-  knownOnlySearching: { x: number; y: number };
   list: Box;
   detail: Box;
   picker: Box;
@@ -105,6 +101,13 @@ interface Geometry {
   strip: (Box & { perRow: number; cell: number }) | null;
   rows: RowMetrics;
 }
+
+/**
+ * Where the open search field sits: the list's first row slot, inside its pane and clear of its scrollbar. The rows
+ * move down by `searchInset` to make room.
+ */
+const searchSlot = (list: Box, height: number): Box => ({ x: list.x + 6, y: list.y + 6, w: list.w - 30, h: height });
+const searchInset = (field: Box): number => field.h + 6;
 
 const desktopGeometry = (): Geometry => {
   const w = WINDOW_WIDTH;
@@ -116,9 +119,7 @@ const desktopGeometry = (): Geometry => {
     portrait: { x: -16, y: -16, scale: 1 },
     bar: { x: 120, y: 42, w: 440, h: 18 },
     knownOnly: { x: 20, y: CONTENT_TOP + 6 },
-    // The list's top strip, 290 wide: the field takes the left, "Known only" the last 100.
-    search: { x: 16, y: CONTENT_TOP + 5, w: LIST_WIDTH - KNOWN_ONLY_WIDTH - 12, h: 22 },
-    knownOnlySearching: { x: LIST_WIDTH - KNOWN_ONLY_WIDTH + 14, y: CONTENT_TOP + 6 },
+    search: searchSlot({ x: 16, y: CONTENT_TOP + 32, w: LIST_WIDTH, h: contentHeight - 32 }, 22),
     list: { x: 16, y: CONTENT_TOP + 32, w: LIST_WIDTH, h: contentHeight - 32 },
     detail: { x: LIST_WIDTH + 24, y: CONTENT_TOP, w: w - LIST_WIDTH - 40, h: contentHeight },
     picker: { x: 16, y: CONTENT_TOP, w: w - 32, h: contentHeight },
@@ -130,10 +131,8 @@ const desktopGeometry = (): Geometry => {
 
 /**
  * The mobile frame, top to bottom: title strip (portrait, Back, title), the tab strip, the summary bar, a row with
- * Known only and Search (the bar joins that row on wide frames), and the list down to the bottom. While search is
- * open the bar is hidden: on wide frames the field takes its place in the row, between Known only and the button;
- * on narrow ones Known only moves up to the bar's row and the field takes the controls row up to the button. The detail
- * pane and the picker cover everything under the title strip.
+ * Known only and Search (the bar joins that row on wide frames), and the list down to the bottom. Open search sits
+ * in the list's first row slot. The detail pane and the picker cover everything under the title strip.
  */
 const mobileGeometry = (w: number, h: number, tabCount: number): Geometry => {
   const inner = w - MOBILE_PAD * 2;
@@ -150,7 +149,6 @@ const mobileGeometry = (w: number, h: number, tabCount: number): Geometry => {
   const listY = controlsY + MOBILE_BUTTON_HEIGHT + 6;
   const buttonX = w - MOBILE_PAD - 120;
   const knownOnly = { x: MOBILE_PAD + 4, y: controlsY + 4 };
-  const fieldX = wide ? knownOnly.x + KNOWN_ONLY_WIDTH + SEARCH_GAP : MOBILE_PAD;
   const cover = { x: MOBILE_PAD, y: MOBILE_CONTENT_TOP, w: inner, h: h - MOBILE_PAD - MOBILE_CONTENT_TOP };
   return {
     w,
@@ -158,8 +156,7 @@ const mobileGeometry = (w: number, h: number, tabCount: number): Geometry => {
     portrait: { x: -6, y: -6, scale: MOBILE_PORTRAIT_SCALE },
     bar,
     knownOnly,
-    search: { x: fieldX, y: controlsY, w: buttonX - SEARCH_GAP - fieldX, h: MOBILE_BUTTON_HEIGHT },
-    knownOnlySearching: wide ? knownOnly : { x: knownOnly.x, y: barRow - 1 },
+    search: searchSlot({ x: MOBILE_PAD, y: listY, w: inner, h: h - MOBILE_PAD - listY }, MOBILE_BUTTON_HEIGHT),
     list: { x: MOBILE_PAD, y: listY, w: inner, h: h - MOBILE_PAD - listY },
     detail: cover,
     picker: cover,
@@ -570,11 +567,7 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
       profession.gatherables.length > 0 ? `${profession.gatherables.length} gatherables` : "",
     ].filter(Boolean).join("  ·  ");
     knownOnlyBox.set(state.knownOnly);
-    const knownOnlyAt = searching ? g.knownOnlySearching : g.knownOnly;
-    at(knownOnlyBox.view, knownOnlyAt.x, knownOnlyAt.y);
-    // Mobile: the bar's room goes to the search field (wide frames) or to Known only (narrow ones).
-    barTrack.visible = !(mobile && searching);
-    barText.visible = barTrack.visible;
+    list.setTopInset(searching ? searchInset(g.search) : 0);
     if (searching) {
       searchField.open(state.search ?? "");
     } else {

@@ -4,7 +4,7 @@ The Professions button becomes a **Search** button that filters the list by name
 
 ## Scope (confirmed by the owner)
 
-- **Search**: a text field, a DOM input like the notes textarea, over the list's top strip. It filters the active tab's list, and matches are case- and accent-insensitive.
+- **Search**: a text field, a DOM input like the notes textarea, in the list's first row slot (the rows move down to make room). The summary bar and Known only stay where they are. It filters the active tab's list, and matches are case- and accent-insensitive.
   - It matches recipe names and gatherable names.
   - A recipe also matches when one of its reagents does.
   - Headers stay for sections that still have matches.

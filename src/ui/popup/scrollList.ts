@@ -16,6 +16,8 @@ export interface ScrollList {
    * The scroll offset in rows (2.5 is halfway down the third row), to carry it into a list rebuilt with other row
    * heights.
    */
+  /** Reserves `px` at the top of the list, above the first row (0 gives it back). */
+  setTopInset: (px: number) => void;
   getPosition: () => number;
   setPosition: (position: number) => void;
 }
@@ -68,7 +70,9 @@ export const createScrollList = (
   view.addChild(at(createStoneOverlay(kit, width - 2, height - 2, 0.6), 1, 1));
 
   const rowWidth = width - SCROLLBAR - 9;
-  const viewport = height - PAD * 2;
+  // `inset` reserves room at the top of the list (the search field's slot); rows start under it.
+  let inset = 0;
+  let viewport = height - PAD * 2;
   const content = at(new Container(), 4, PAD);
   const mask = new Graphics().rect(4, 2, rowWidth, height - 4).fill(0xffffff);
   content.mask = mask;
@@ -254,6 +258,16 @@ export const createScrollList = (
     },
     setSelected: (key) => {
       selectedKey = key;
+      render();
+    },
+    setTopInset: (px) => {
+      if (px === inset) {
+        return;
+      }
+      inset = px;
+      viewport = height - PAD * 2 - inset;
+      content.y = PAD + inset;
+      mask.clear().rect(4, 2 + inset, rowWidth, height - 4 - inset).fill(0xffffff);
       render();
     },
     getPosition: () => {
