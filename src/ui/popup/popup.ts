@@ -88,7 +88,6 @@ interface Geometry {
   /** The mobile tab strip; desktop has side tabs instead. */
   strip: (Box & { perRow: number; cell: number }) | null;
   rows: RowMetrics;
-  notesBeside: boolean;
 }
 
 const desktopGeometry = (): Geometry => {
@@ -107,7 +106,6 @@ const desktopGeometry = (): Geometry => {
     professions: { x: w - 16 - 120, y: h - 34, w: 120, h: 24 },
     strip: null,
     rows: DESKTOP_ROWS,
-    notesBeside: false,
   };
 };
 
@@ -141,8 +139,6 @@ const mobileGeometry = (w: number, h: number, tabCount: number): Geometry => {
     professions: { x: w - MOBILE_PAD - 120, y: controlsY, w: 120, h: MOBILE_BUTTON_HEIGHT },
     strip,
     rows: TOUCH_ROWS,
-    // Landscape phones: too short for notes under the content.
-    notesBeside: cover.w > cover.h * 1.6,
   };
 };
 
@@ -206,9 +202,9 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
       store.set({ collapsed });
     },
   }, ticker, g.rows);
-  const detail = createDetailPane(kit, g.detail.w, g.detail.h,
-    (itemId) => store.set({ selection: { kind: "item", itemId }, detailOpen: true }),
-    (recipe, isKnown) => {
+  const detail = createDetailPane(kit, g.detail.w, g.detail.h, ticker, {
+    onSelectItem: (itemId) => store.set({ selection: { kind: "item", itemId }, detailOpen: true }),
+    onToggleKnown: (recipe, isKnown) => {
       const known = new Set(store.get().known);
       if (isKnown) {
         known.add(recipeKey(recipe));
@@ -216,7 +212,10 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
         known.delete(recipeKey(recipe));
       }
       store.set({ known });
-    }, { notesBeside: g.notesBeside });
+    },
+    // Editing arrives in stage 2 of docs/PLAN-inline-notes.md; until then the note is read-only.
+    onEditNote: () => undefined,
+  });
   const knownOnlyBox = checkbox(kit, "Known only", TEXT_STYLES.row,
     (knownOnly) => store.set({ knownOnly }), store.get().knownOnly);
   const professionsButton = button(kit, "Professions", g.professions.w, () => {
@@ -390,7 +389,11 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   notesField.setTextSize(mobile ? NOTES_TEXT_SIZE_MOBILE : NOTES_TEXT_SIZE);
   notesField.setVisible(true);
   detail.view.onRender = () => {
-    const { x, y, width, height } = detail.notesArea;
+    const box = detail.noteBox();
+    if (!box) {
+      return;
+    }
+    const { x, y, width, height } = box;
     if (mobile) {
       // Mobile runs at scale 1, so the field's unshifted top is plain arithmetic.
       const top = win.y + g.detail.y + y;
@@ -445,12 +448,10 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     const selectedKey = !selection ? null : selection.kind === "recipe" ? recipeKey(selection.recipe)
       : `item:${selection.itemId}`;
     list.setSelected(selectedKey);
-    detail.show(selection, selection?.kind === "recipe" && state.known.has(recipeKey(selection.recipe)));
-    if (selectedKey) {
-      notesField.open(selectedKey, state.notes[selectedKey] ?? "");
-    } else {
-      notesField.close();
-    }
+    detail.show(selection, selection?.kind === "recipe" && state.known.has(recipeKey(selection.recipe)),
+      selectedKey ? state.notes[selectedKey] ?? "" : "");
+    // Read-only until the edit mode lands: the textarea stays closed and the note shows as text.
+    notesField.close();
   };
 
   const render = (animate: boolean) => {
@@ -467,14 +468,8 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     title.x = open ? Math.max(w / 2, BACK_X + BACK_WIDTH + 8 + title.width / 2) : w / 2;
   };
 
-  // Typing a note only changes `notes`; nothing visible depends on it, so skip the rebuild (it would also rebuild
-  // the detail pane on every keystroke).
-  const unsubscribe = store.subscribe((state, previous) => {
-    if (state.notes === previous.notes || (Object.keys(state) as (keyof typeof state)[])
-      .some((field) => field !== "notes" && state[field] !== previous[field])) {
-      render(true);
-    }
-  });
+  // Notes are shown as text in the detail pane now, so a saved note re-renders like any other change.
+  const unsubscribe = store.subscribe(() => render(true));
   if (store.get().view === "picker") {
     picker.open(carry?.picked ?? store.get().chosen);
   }
