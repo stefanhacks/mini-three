@@ -1,33 +1,72 @@
-import { Container, Rectangle, type Text } from "pixi.js";
+import {
+  Container, type FederatedPointerEvent, type FederatedWheelEvent, Graphics, Rectangle, type Text, type Ticker,
+} from "pixi.js";
 import { CLOTH_KEY, type Recipe } from "../../data";
-import { PROFESSION_ICONS, gathererOf, itemOf, professionByKey, recipesUsingItem } from "../../data/model";
+import {
+  PROFESSION_ICONS, gathererOf, itemOf, locationsOf, professionByKey, recipeKey, recipesUsingItem,
+} from "../../data/model";
 import { type ArtKit, PALETTE, TEXT_STYLES, createStoneOverlay } from "../art";
-import { at, checkbox, itemSlot, label, piece, qualityColor, tinted } from "../widgets";
+import { at, button, checkbox, iconSprite, itemSlot, label, piece, qualityColor, tinted } from "../widgets";
+import { createDragScroll } from "./dragScroll";
 
 export type Selection = { kind: "recipe"; recipe: Recipe } | { kind: "item"; itemId: number } | null;
 
+/** A rectangle in the detail pane's local coordinates. */
+export interface PaneBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface DetailPane {
   view: Container;
-  /** Rebuilds the pane. `known` is the selected recipe's flag, ignored for items. */
-  show: (selection: Selection, known: boolean) => void;
-  /** Where the DOM notes field goes, in this pane's local coordinates (the framed field, inset a little). */
-  notesArea: { x: number; y: number; width: number; height: number };
+  /**
+   * Rebuilds the pane. `known` is the selected recipe's flag (ignored for items), `note` the entry's saved note.
+   * `editHeight` is null while reading; while editing it is the height reserved for the textarea, which replaces
+   * the note text, and the pane scrolls to keep that block in view. The scroll offset is kept when the same entry
+   * is shown again (a known toggle, a taller textarea), and reset for a new one.
+   */
+  show: (selection: Selection, known: boolean, note: string, editHeight: number | null) => void;
+  /** Where the note text (or the textarea over it) sits right now, in pane coordinates after scrolling, or null. */
+  noteBox: () => PaneBox | null;
+}
+
+interface DetailHandlers {
+  onSelectItem: (itemId: number) => void;
+  /** The Known checkbox, shown only while editing: it changes the edit's draft, which Save keeps. */
+  onToggleKnown: (recipe: Recipe, known: boolean) => void;
+  /** The Edit button in the pane's bottom-right corner. */
+  onEditNote: () => void;
+  /** Save and Cancel replace Edit while editing. */
+  onSaveNote: () => void;
+  onCancelNote: () => void;
 }
 
 const PAD = 18;
 const ICON_SIZE = 48;
 const SLOT_SIZE = 40;
 const REAGENT_ROW = 48;
-const NOTES_HEIGHT = 84;
 const USED_IN_LINE = 18;
 /** Narrowest reagent column; wide panes fit more than two. */
 const REAGENT_COLUMN = 160;
-const NOTES_GAP = 18;
-
-interface DetailOptions {
-  /** Notes in a column on the right, full height, instead of under the content: for short, wide panes. */
-  notesBeside?: boolean;
-}
+const SECTION_GAP = 18;
+const NOTE_LABEL_GAP = 20;
+/** How far the edit box's frame reaches outside the textarea. */
+const FIELD_FRAME = 5;
+const EDIT_WIDTH = 64;
+const EDIT_HEIGHT = 22;
+const EDIT_GAP = 6;
+/** Room the Known checkbox takes at the heading's top right. */
+const KNOWN_WIDTH = 80;
+/** The note block never shrinks below this. */
+export const NOTE_MIN_HEIGHT = 40;
+/** The textarea is at least this tall while editing. */
+export const NOTE_EDIT_MIN_HEIGHT = 84;
+/** The tallest the textarea grows in a pane of this height; longer text scrolls inside it. */
+export const noteEditMaxHeight = (paneHeight: number): number =>
+  Math.max(NOTE_EDIT_MIN_HEIGHT, Math.floor(paneHeight * 0.5));
+const WHEEL_LINE = 20;
 
 /** Shortens a single-line label with an ellipsis until it fits `maxWidth`. */
 const fitWidth = (text: Text, maxWidth: number): Text => {
@@ -40,73 +79,150 @@ const fitWidth = (text: Text, maxWidth: number): Text => {
   return text;
 };
 
-/** The right-hand pane: what the selected recipe needs, or where a gatherable is used, plus the notes field. */
+export const selectionKey = (selection: Selection): string | null => !selection ? null
+  : selection.kind === "recipe" ? recipeKey(selection.recipe) : `item:${selection.itemId}`;
+
+/**
+ * The right-hand pane, top to bottom: heading (icon, name, subtitle, and Known for recipes), divider, the note as
+ * plain text with an Edit button, then the recipe's reagents or the item's "Used in" list. Content taller than the
+ * pane scrolls (drag, fling, wheel).
+ */
 export const createDetailPane = (
-  kit: ArtKit, width: number, height: number, onSelectItem: (itemId: number) => void,
-  onToggleKnown: (recipe: Recipe, known: boolean) => void, options: DetailOptions = {},
+  kit: ArtKit, width: number, height: number, ticker: Ticker, handlers: DetailHandlers,
 ): DetailPane => {
   const view = new Container();
   view.addChild(piece(kit, "paneDetail", width, height));
   view.addChild(at(createStoneOverlay(kit, width - 2, height - 2, 0.5), 1, 1));
+
+  const inner = width - PAD * 2;
+  const content = new Container();
+  const mask = new Graphics().rect(2, 2, width - 4, height - 4).fill(0xffffff);
+  content.mask = mask;
+  view.addChild(content, mask);
   let body = new Container();
-  view.addChild(body);
+  content.addChild(body);
+  // Edit sits in the pane's bottom-right corner, out of the way and fixed while the content scrolls.
+  const edit = button(kit, "Edit", EDIT_WIDTH, handlers.onEditNote, EDIT_HEIGHT);
+  view.addChild(at(edit.view, width - PAD / 2 - EDIT_WIDTH, height - PAD / 2 - EDIT_HEIGHT));
+  edit.view.visible = false;
 
-  const beside = options.notesBeside === true;
-  const paneInner = width - PAD * 2;
-  // Width of the content column: everything but the notes when they sit beside it.
-  const inner = beside ? Math.round(paneInner * 0.6) : paneInner;
-  const notesX = beside ? PAD + inner + NOTES_GAP : PAD;
-  const notesWidth = beside ? paneInner - inner - NOTES_GAP : inner;
-  const notesHeight = beside ? height - PAD * 2 - 12 : NOTES_HEIGHT;
-  const notesTop = beside ? PAD : height - NOTES_HEIGHT - PAD - 18;
-  // Where the content above (or beside) the notes has to end.
-  const contentBottom = beside ? height - PAD : notesTop;
+  let scroll = 0;
+  let contentHeight = 0;
+  let note: PaneBox | null = null;
+  let shownKey: string | null = null;
+  /** The note block as the last build placed it (a call, so the compiler doesn't narrow it to the reset value). */
+  const noteBlockBox = (): PaneBox | null => note;
+  const maxScroll = () => Math.max(0, contentHeight - height);
+  const scrollTo = (value: number) => {
+    scroll = Math.min(Math.max(0, value), maxScroll());
+    content.y = -Math.round(scroll);
+  };
 
-  const heading = (icon: string | null, quality: number, title: string, titleColor: number, subtitle: string) => {
+  const drag = createDragScroll(view, ticker, { get: () => scroll, set: scrollTo }, content);
+  const area = new Container();
+  area.hitArea = new Rectangle(0, 0, width, height);
+  area.eventMode = "static";
+  view.addChildAt(area, 2);
+  area.on("pointerdown", (event: FederatedPointerEvent) => drag.press(event));
+  content.eventMode = "static";
+  content.on("pointerdown", (event: FederatedPointerEvent) => drag.press(event));
+  view.eventMode = "static";
+  view.on("wheel", (event: FederatedWheelEvent) => {
+    drag.stop();
+    scrollTo(scroll + (event.deltaMode === 1 ? event.deltaY * WHEEL_LINE : event.deltaY));
+  });
+
+  /** Heading and divider; returns the y under the divider. `reserveRight` keeps the name clear of Known. */
+  const heading = (icon: string | null, quality: number, title: string, titleColor: number, subtitle: string,
+    reserveRight: number): number => {
     body.addChild(at(itemSlot(kit, icon, ICON_SIZE, quality), PAD, PAD));
-    const name = label(title, tinted(TEXT_STYLES.itemName, titleColor), PAD + ICON_SIZE + 12, PAD + 2, 0, 0);
+    const textX = PAD + ICON_SIZE + 12;
+    const name = label(title, tinted(TEXT_STYLES.itemName, titleColor), textX, PAD + 2, 0, 0);
     name.style.wordWrap = true;
-    name.style.wordWrapWidth = inner - ICON_SIZE - 12;
+    name.style.wordWrapWidth = inner - ICON_SIZE - 12 - reserveRight;
     body.addChild(name);
     const subtitleY = Math.max(PAD + 38, name.y + name.height + 8);
-    body.addChild(label(subtitle, TEXT_STYLES.label, PAD + ICON_SIZE + 12, subtitleY));
-    body.addChild(at(piece(kit, "divider", inner, 2), PAD, PAD + ICON_SIZE + 18));
+    const sub = label(subtitle, TEXT_STYLES.label, textX, subtitleY);
+    body.addChild(fitWidth(sub, inner - ICON_SIZE - 12));
+    const dividerY = Math.max(PAD + ICON_SIZE + 18, subtitleY + 16);
+    body.addChild(at(piece(kit, "divider", inner, 2), PAD, dividerY));
+    return dividerY + 2;
   };
 
-  const FIELD_INSET = 6;
-  const notesArea = {
-    x: notesX + FIELD_INSET, y: notesTop + 12 + FIELD_INSET, width: notesWidth - FIELD_INSET * 2,
-    height: notesHeight - FIELD_INSET * 2,
-  };
-
-  const notes = () => {
-    body.addChild(label("Notes:", TEXT_STYLES.label, notesX, notesTop));
-    body.addChild(at(piece(kit, "field", notesWidth, notesHeight), notesX, notesTop + 12));
+  /**
+   * "Notes" label, then the note as wrapped text. While editing (`editHeight` set) Save and Cancel join the label
+   * and the text gives way to an empty block of that height, where the textarea sits.
+   * Returns the y under the block.
+   */
+  const noteBlock = (top: number, text: string, editHeight: number | null): number => {
+    const labelY = top + 14;
+    body.addChild(label("Notes:", TEXT_STYLES.label, PAD, labelY));
+    const buttonY = labelY - EDIT_HEIGHT / 2;
+    const textY = labelY + NOTE_LABEL_GAP - 6;
+    if (editHeight !== null) {
+      // Save and Cancel stay on the "Notes:" line, next to the textarea: on a phone the keyboard covers the corner.
+      const save = button(kit, "Save", EDIT_WIDTH, handlers.onSaveNote, EDIT_HEIGHT);
+      const cancel = button(kit, "Cancel", EDIT_WIDTH, handlers.onCancelNote, EDIT_HEIGHT);
+      body.addChild(at(save.view, PAD + inner - EDIT_WIDTH * 2 - EDIT_GAP, buttonY));
+      body.addChild(at(cancel.view, PAD + inner - EDIT_WIDTH, buttonY));
+      // The edit box: a focused field frame around the textarea, shown only while editing.
+      body.addChild(at(piece(kit, "fieldFocus", inner + FIELD_FRAME * 2, editHeight + FIELD_FRAME * 2),
+        PAD - FIELD_FRAME, textY - FIELD_FRAME));
+      note = { x: PAD, y: textY, width: inner, height: editHeight };
+      return textY + editHeight;
+    }
+    const shown = text.trim() === ""
+      ? label("No notes yet.", TEXT_STYLES.muted, PAD, textY, 0, 0)
+      : label(text, TEXT_STYLES.body, PAD, textY, 0, 0);
+    // User text: wrap at the pane width and break words longer than a line (URLs, coordinates).
+    shown.style = shown.style.clone();
+    shown.style.wordWrap = true;
+    shown.style.breakWords = true;
+    shown.style.wordWrapWidth = inner;
+    body.addChild(shown);
+    const blockHeight = Math.max(NOTE_MIN_HEIGHT, shown.height);
+    note = { x: PAD, y: textY, width: inner, height: blockHeight };
+    return textY + blockHeight;
   };
 
   const clickable = (target: Container, itemId: number, hitWidth: number, hitHeight: number) => {
     target.eventMode = "static";
     target.cursor = "pointer";
     target.hitArea = new Rectangle(0, 0, hitWidth, hitHeight);
-    target.on("pointertap", () => onSelectItem(itemId));
+    target.on("pointertap", () => {
+      if (!drag.dragged()) {
+        handlers.onSelectItem(itemId);
+      }
+    });
   };
 
-  const showRecipe = (recipe: Recipe, known: boolean) => {
+  const showRecipe = (recipe: Recipe, known: boolean, text: string, editHeight: number | null): number => {
     const profession = professionByKey.get(recipe.profession);
     const created = recipe.item ? itemOf(recipe.item) : null;
+    const editing = editHeight !== null;
     // Most recipes are learnable at skill 1; the yellow and grey thresholds say when it is worth crafting.
     const subtitle = [
       `${profession?.name ?? ""}${recipe.minSkill > 1 ? ` ${recipe.minSkill}` : ""}`,
       recipe.trivialLow > 0 ? `yellow ${recipe.trivialLow}, grey ${recipe.trivialHigh}` : "",
       recipe.count && recipe.count > 1 ? `creates ${recipe.count}` : "",
     ].filter(Boolean).join("  ·  ");
-    heading(created?.icon ?? PROFESSION_ICONS[recipe.profession], created?.quality ?? 1, recipe.name,
-      created ? qualityColor(created.quality) : PALETTE.text.header, subtitle);
+    const underDivider = heading(created?.icon ?? PROFESSION_ICONS[recipe.profession], created?.quality ?? 1,
+      recipe.name, created ? qualityColor(created.quality) : PALETTE.text.header, subtitle,
+      editing || known ? KNOWN_WIDTH : 0);
+    if (!editing && known) {
+      // While reading, the known flag is a quiet tag in the corner where the checkbox appears in edit mode.
+      body.addChild(iconSprite(kit.icons.check, PAD + inner - 62, PAD + 12, PALETTE.gold.light, 0.8));
+      body.addChild(label("Known", TEXT_STYLES.muted, PAD + inner - 50, PAD + 12));
+    }
+    if (editing) {
+      // Known sits at the heading's top right, where the game shows its favourite star. Save keeps it.
+      const knownBox = checkbox(kit, "Known", TEXT_STYLES.row,
+        (checked) => handlers.onToggleKnown(recipe, checked), known);
+      body.addChild(at(knownBox.view, PAD + inner - 72, PAD + 2));
+    }
 
-    const top = PAD + ICON_SIZE + 36;
+    const top = noteBlock(underDivider, text, editHeight) + SECTION_GAP;
     body.addChild(label("Reagents:", TEXT_STYLES.label, PAD, top));
-    const knownBox = checkbox(kit, "Known", TEXT_STYLES.row, (checked) => onToggleKnown(recipe, checked), known);
-    body.addChild(at(knownBox.view, PAD + inner - 72, top - 10));
     const columns = Math.max(2, Math.floor(inner / REAGENT_COLUMN));
     const column = Math.floor(inner / columns);
     recipe.reagents.forEach(({ item: itemId, count }, i) => {
@@ -121,51 +237,80 @@ export const createDetailPane = (
       clickable(cell, itemId, column - 6, SLOT_SIZE);
       body.addChild(cell);
     });
+    return top + 14 + Math.ceil(recipe.reagents.length / columns) * REAGENT_ROW;
   };
 
-  const showItem = (itemId: number) => {
+  /**
+   * "Found in" for Herbalism and Mining gatherables: the zones their nodes spawn in, most spawns first, as one
+   * wrapped line. Returns the y where the next section starts (unchanged when the item has no known nodes).
+   */
+  const foundIn = (itemId: number, top: number): number => {
+    const zones = locationsOf(itemId);
+    if (zones.length === 0) {
+      return top;
+    }
+    body.addChild(label("Found in:", TEXT_STYLES.label, PAD, top));
+    const list = label(zones.join(", "), TEXT_STYLES.body, PAD + 4, top + 14, 0, 0);
+    list.style = list.style.clone();
+    list.style.wordWrapWidth = inner - 4;
+    body.addChild(list);
+    return top + 14 + list.height + SECTION_GAP;
+  };
+
+  const showItem = (itemId: number, text: string, editHeight: number | null): number => {
     const item = itemOf(itemId);
     const gatherer = gathererOf(itemId);
     const subtitle = !gatherer ? "Reagent" : gatherer.key === CLOTH_KEY ? "Cloth" : `Gathered with ${gatherer.name}`;
-    heading(item.icon, item.quality, item.name, qualityColor(item.quality), subtitle);
+    const underDivider = heading(item.icon, item.quality, item.name, qualityColor(item.quality), subtitle, 0);
 
     const users = (recipesUsingItem.get(itemId) ?? []).slice()
       .sort((a, b) => a.profession.localeCompare(b.profession) || a.trivialLow - b.trivialLow);
-    const top = PAD + ICON_SIZE + 36;
+    const top = foundIn(itemId, noteBlock(underDivider, text, editHeight) + SECTION_GAP);
     body.addChild(label(`Used in ${users.length} recipe${users.length === 1 ? "" : "s"}:`, TEXT_STYLES.label,
       PAD, top));
-    const fits = Math.max(1, Math.floor((contentBottom - top - 24) / USED_IN_LINE));
-    const shown = users.length > fits ? fits - 1 : users.length;
-    users.slice(0, shown).forEach((recipe, i) => {
+    // The pane scrolls, so the whole list is shown.
+    users.forEach((recipe, i) => {
       const count = recipe.reagents.find((r) => r.item === itemId)?.count ?? 1;
       const profession = professionByKey.get(recipe.profession)?.name ?? "";
       const line = label(`${profession}: ${recipe.name}${count > 1 ? ` (×${count})` : ""}`, TEXT_STYLES.row,
         PAD + 4, top + 22 + i * USED_IN_LINE);
       body.addChild(fitWidth(line, inner - 4));
     });
-    if (shown < users.length) {
-      body.addChild(label(`…and ${users.length - shown} more`, TEXT_STYLES.muted, PAD + 4,
-        top + 22 + shown * USED_IN_LINE));
-    }
+    return top + 22 + users.length * USED_IN_LINE;
   };
 
   return {
     view,
-    notesArea,
-    show: (selection, known) => {
+    noteBox: () => note && { ...note, y: note.y - scroll },
+    show: (selection, known, text, editHeight) => {
       body.destroy({ children: true });
       body = new Container();
-      view.addChild(body);
+      content.addChild(body);
+      note = null;
+      const key = selectionKey(selection);
       if (!selection) {
         body.addChild(label("Select a recipe or a gatherable.", TEXT_STYLES.muted, width / 2, height / 2, 0.5));
-        return;
-      }
-      if (selection.kind === "recipe") {
-        showRecipe(selection.recipe, known);
+        contentHeight = 0;
       } else {
-        showItem(selection.itemId);
+        const bottom = selection.kind === "recipe" ? showRecipe(selection.recipe, known, text, editHeight)
+          : showItem(selection.itemId, text, editHeight);
+        // Room under the content for the corner Edit button, so the last line never hides behind it.
+        contentHeight = bottom + PAD + (editHeight === null ? EDIT_HEIGHT : 0);
       }
-      notes();
+      edit.view.visible = selection !== null && editHeight === null;
+      if (key !== shownKey) {
+        drag.stop();
+        scroll = 0;
+      }
+      shownKey = key;
+      const block = noteBlockBox();
+      if (editHeight !== null && block) {
+        // Keep the whole textarea in view when it fits, else its top.
+        const { y, height: boxHeight } = block;
+        const bottom = y + boxHeight + PAD;
+        scroll = boxHeight + PAD * 2 > height ? y - PAD : Math.min(Math.max(scroll, bottom - height), y - PAD);
+      }
+      scrollTo(scroll);
     },
   };
 };

@@ -1,5 +1,6 @@
 import { Container, Graphics, Rectangle, type Ticker } from "pixi.js";
-import type { Store } from "../../app/store";
+import { cancelEdit, saveEdit, setKnownDraft, startEdit } from "../../app/notesEdit";
+import type { AppState, Store } from "../../app/store";
 import type { ProfessionKey } from "../../data";
 import { PROFESSION_ICONS, itemOf, professionByKey, recipeKey, recipesByProfession } from "../../data/model";
 import {
@@ -9,7 +10,7 @@ import {
 import { keyboardShift, stripLayout } from "../layout";
 import { SLIDE_MS, tweenAt } from "../motion";
 import { at, button, checkbox, iconSprite, itemSlot, label, piece, roundIcon } from "../widgets";
-import { createDetailPane } from "./detail";
+import { NOTE_EDIT_MIN_HEIGHT, createDetailPane, noteEditMaxHeight, selectionKey } from "./detail";
 import { NOTES_TEXT_SIZE, NOTES_TEXT_SIZE_MOBILE, type NotesField } from "./notesField";
 import { createPicker } from "./picker";
 import { DESKTOP_ROWS, type RowMetrics, TOUCH_ROWS, buildRows } from "./rows";
@@ -88,7 +89,6 @@ interface Geometry {
   /** The mobile tab strip; desktop has side tabs instead. */
   strip: (Box & { perRow: number; cell: number }) | null;
   rows: RowMetrics;
-  notesBeside: boolean;
 }
 
 const desktopGeometry = (): Geometry => {
@@ -107,7 +107,6 @@ const desktopGeometry = (): Geometry => {
     professions: { x: w - 16 - 120, y: h - 34, w: 120, h: 24 },
     strip: null,
     rows: DESKTOP_ROWS,
-    notesBeside: false,
   };
 };
 
@@ -141,8 +140,6 @@ const mobileGeometry = (w: number, h: number, tabCount: number): Geometry => {
     professions: { x: w - MOBILE_PAD - 120, y: controlsY, w: 120, h: MOBILE_BUTTON_HEIGHT },
     strip,
     rows: TOUCH_ROWS,
-    // Landscape phones: too short for notes under the content.
-    notesBeside: cover.w > cover.h * 1.6,
   };
 };
 
@@ -206,17 +203,21 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
       store.set({ collapsed });
     },
   }, ticker, g.rows);
-  const detail = createDetailPane(kit, g.detail.w, g.detail.h,
-    (itemId) => store.set({ selection: { kind: "item", itemId }, detailOpen: true }),
-    (recipe, isKnown) => {
-      const known = new Set(store.get().known);
-      if (isKnown) {
-        known.add(recipeKey(recipe));
-      } else {
-        known.delete(recipeKey(recipe));
+  const detail = createDetailPane(kit, g.detail.w, g.detail.h, ticker, {
+    onSelectItem: (itemId) => store.set({ selection: { kind: "item", itemId }, detailOpen: true }),
+    onToggleKnown: (_recipe, isKnown) => setKnownDraft(store, isKnown),
+    onEditNote: () => {
+      const { selection } = store.get();
+      const key = selectionKey(selection);
+      if (key) {
+        startEdit(store, key, selection?.kind === "recipe");
+        // Inside the press, so phones raise the keyboard.
+        notesField.focus();
       }
-      store.set({ known });
-    }, { notesBeside: g.notesBeside });
+    },
+    onSaveNote: () => saveEdit(store),
+    onCancelNote: () => cancelEdit(store),
+  });
   const knownOnlyBox = checkbox(kit, "Known only", TEXT_STYLES.row,
     (knownOnly) => store.set({ knownOnly }), store.get().knownOnly);
   const professionsButton = button(kit, "Professions", g.professions.w, () => {
@@ -385,12 +386,23 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   }
   let shift = 0;
 
-  // The notes live in a DOM textarea over the detail pane. It is moved to the pane's screen rectangle every frame
-  // (cheap when nothing moved), so it follows the popup's scale and the window size.
+  // While a note is edited, it lives in a DOM textarea over the note block of the detail pane. It is moved to the
+  // block's screen rectangle every frame (cheap when nothing moved), so it follows the popup's scale, the pane's
+  // scrolling and the window size.
   notesField.setTextSize(mobile ? NOTES_TEXT_SIZE_MOBILE : NOTES_TEXT_SIZE);
   notesField.setVisible(true);
+  let editHeight = NOTE_EDIT_MIN_HEIGHT;
+  const maxEditHeight = noteEditMaxHeight(g.detail.h);
   detail.view.onRender = () => {
-    const { x, y, width, height } = detail.notesArea;
+    const box = store.get().editing ? detail.noteBox() : null;
+    if (!box) {
+      if (shift !== 0) {
+        shift = 0;
+        win.pivot.y = 0;
+      }
+      return;
+    }
+    const { x, y, width, height } = box;
     if (mobile) {
       // Mobile runs at scale 1, so the field's unshifted top is plain arithmetic.
       const top = win.y + g.detail.y + y;
@@ -407,6 +419,30 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   };
 
   let renderedProfession: ProfessionKey | null = null;
+
+  /** Rebuilds the detail pane from the store: the entry, its saved note, and the textarea's room while editing. */
+  const showDetail = () => {
+    const { selection, known, notes, editing } = store.get();
+    const key = selectionKey(selection);
+    const editingThis = editing !== null && editing.key === key;
+    // While editing, the checkbox shows the draft's known flag; otherwise the saved one.
+    const isKnown = editingThis && editing.known !== undefined ? editing.known
+      : selection?.kind === "recipe" && known.has(recipeKey(selection.recipe));
+    detail.show(selection, isKnown, key ? notes[key] ?? "" : "", editingThis ? editHeight : null);
+  };
+
+  /** Sizes the textarea to its text, within the minimum and maximum. True when its height changed. */
+  const fitEditor = (): boolean => {
+    const box = detail.noteBox();
+    const needed = box ? notesField.measure(box.width) : 0;
+    if (needed === 0) {
+      return false;
+    }
+    const next = Math.min(maxEditHeight, Math.max(NOTE_EDIT_MIN_HEIGHT, needed));
+    const changed = next !== editHeight;
+    editHeight = next;
+    return changed;
+  };
 
   const renderContent = (inPicker: boolean) => {
     const state = store.get();
@@ -445,11 +481,18 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     const selectedKey = !selection ? null : selection.kind === "recipe" ? recipeKey(selection.recipe)
       : `item:${selection.itemId}`;
     list.setSelected(selectedKey);
-    detail.show(selection, selection?.kind === "recipe" && state.known.has(recipeKey(selection.recipe)));
-    if (selectedKey) {
-      notesField.open(selectedKey, state.notes[selectedKey] ?? "");
-    } else {
+    const editing = state.editing && state.editing.key === selectedKey ? state.editing : null;
+    if (!editing) {
+      editHeight = NOTE_EDIT_MIN_HEIGHT;
       notesField.close();
+    }
+    showDetail();
+    if (editing) {
+      notesField.open(editing.key, editing.draft);
+      // The textarea can only be measured once it is shown; a different height rebuilds the pane once more.
+      if (fitEditor()) {
+        showDetail();
+      }
     }
   };
 
@@ -467,12 +510,16 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     title.x = open ? Math.max(w / 2, BACK_X + BACK_WIDTH + 8 + title.width / 2) : w / 2;
   };
 
-  // Typing a note only changes `notes`; nothing visible depends on it, so skip the rebuild (it would also rebuild
-  // the detail pane on every keystroke).
+  // Typing only changes the draft: grow the textarea if its text needs it, without rebuilding anything else.
+  const onlyDraftChanged = (state: AppState, previous: AppState): boolean =>
+    state.editing !== null && previous.editing !== null && state.editing.key === previous.editing.key
+    && (Object.keys(state) as (keyof AppState)[]).every((field) =>
+      field === "editing" || state[field] === previous[field]);
   const unsubscribe = store.subscribe((state, previous) => {
-    if (state.notes === previous.notes || (Object.keys(state) as (keyof typeof state)[])
-      .some((field) => field !== "notes" && state[field] !== previous[field])) {
+    if (!onlyDraftChanged(state, previous)) {
       render(true);
+    } else if (fitEditor()) {
+      showDetail();
     }
   });
   if (store.get().view === "picker") {

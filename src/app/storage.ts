@@ -6,7 +6,10 @@ const VERSION = 1;
 const SAVE_DELAY = 300;
 export const MAX_NOTE_LENGTH = 1000;
 
-/** What survives a reload. Plain JSON types only; sets become arrays. The selection is transient and not saved. */
+/**
+ * What survives a reload. Plain JSON types only; sets become arrays. The selection and any note being edited are
+ * transient and not saved.
+ */
 export interface SavedData {
   chosen: ProfessionKey[];
   active: ProfessionKey | null;
@@ -86,6 +89,7 @@ export const fromSaved = (data: SavedData): AppState => ({
   known: new Set(data.known),
   knownOnly: data.knownOnly,
   notes: data.notes,
+  editing: null,
 });
 
 /** Reads `localStorage`. Blocked or throwing storage counts as empty. */

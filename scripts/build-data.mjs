@@ -6,13 +6,26 @@ import path from "node:path";
 import readline from "node:readline";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { CLOTH_KEY, classifyGatherables, parseCsv, toInt } from "./data-lib.mjs";
+import {
+  CLOTH_KEY, classifyGatherables, locateItems, parseCsv, readQuestieObjects, toInt, zoneNamesByCount,
+} from "./data-lib.mjs";
 
 // Pinned inputs: change them on purpose, and the output changes with them.
 // Tables are fetched with useHotfixes=true. It is an undocumented wago.tools query parameter (found by trying it):
 // without it ItemSparse lacks ~6,000 live items, so names and qualities go missing.
 const BUILD = "1.60.1.71037";
 const LISTFILE_TAG = "202611211242";
+// Known locations come from QuestieDB (https://github.com/Questie/QuestieDB, GPLv3), Forever branch, at this commit.
+// This repo is public domain, so only derived facts are kept: the zone names where each node type spawns.
+// None of QuestieDB's files, code or coordinates are copied here: the Lua is read at build time, cached in .cache/,
+// and reduced to a spawn count per zone. Source files: data/Forever/foreverObjectDB.lua (the object table, fields
+// name, questStarts, questEnds, spawns = { [AreaTable id] = { { x, y }, ... } }, zone) plus the Forever delta
+// src/corrections/Forever/generated/foreverBaseObject.lua (adds objects such as the Forever-only herb nodes).
+const QUESTIE_COMMIT = "9921e9bfe86a600e83b157fc3f25e578f7725216";
+const QUESTIE_FILES = [
+  "data/Forever/foreverObjectDB.lua",
+  "src/corrections/Forever/generated/foreverBaseObject.lua",
+];
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const CACHE_DIR = path.join(ROOT, ".cache");
@@ -108,6 +121,85 @@ const MINING_GEMS = [
   12800, // Azerothian Diamond
 ];
 // ItemSparse.BagFamily bits that name the profession bag an item belongs in.
+// Which item each Herbalism and Mining node yields, hand-checked. A rule matches objects by exact name (`node`: the
+// same node has several object ids, one per spawn group or zone) or by object id (`ids`, when only some objects of a
+// name yield it). Yields follow QuestieDB's item `objectDrops` (the loot tables), limited to these node objects:
+// chests and crates that also hold the same items are not nodes.
+const LOCATION_RULES = [
+  // Herbs: each node yields the herb of the same name.
+  { node: "Silverleaf", items: [765] }, // Silverleaf
+  { node: "Mageroyal", items: [785] }, // Mageroyal
+  { node: "Peacebloom", items: [2447] }, // Peacebloom
+  { node: "Earthroot", items: [2449] }, // Earthroot
+  { node: "Briarthorn", items: [2450] }, // Briarthorn
+  { node: "Bruiseweed", items: [2453] }, // Bruiseweed
+  { node: "Wild Steelbloom", items: [3355] }, // Wild Steelbloom
+  { node: "Kingsblood", items: [3356] }, // Kingsblood
+  { node: "Liferoot", items: [3357] }, // Liferoot
+  { node: "Khadgar's Whisker", items: [3358] }, // Khadgar's Whisker
+  { node: "Grave Moss", items: [3369] }, // Grave Moss
+  { node: "Fadeleaf", items: [3818] }, // Fadeleaf
+  { node: "Wintersbite", items: [3819] }, // Wintersbite
+  { node: "Stranglekelp", items: [3820] }, // Stranglekelp
+  { node: "Goldthorn", items: [3821] }, // Goldthorn
+  { node: "Firebloom", items: [4625] }, // Firebloom
+  { node: "Purple Lotus", items: [8831] }, // Purple Lotus
+  { node: "Arthas' Tears", items: [8836] }, // Arthas' Tears
+  { node: "Sungrass", items: [8838] }, // Sungrass
+  { node: "Blindweed", items: [8839] }, // Blindweed
+  { node: "Ghost Mushroom", items: [8845] }, // Ghost Mushroom
+  { node: "Gromsblood", items: [8846] }, // Gromsblood
+  { node: "Dreamfoil", items: [13463] }, // Dreamfoil
+  { node: "Golden Sansam", items: [13464] }, // Golden Sansam
+  { node: "Mountain Silversage", items: [13465] }, // Mountain Silversage
+  { node: "Plaguebloom", items: [13466] }, // Plaguebloom
+  { node: "Icecap", items: [13467] }, // Icecap
+  { node: "Black Lotus", items: [13468] }, // Black Lotus
+  { node: "Demonsage", items: [248821] }, // Demonsage (Forever-only node, same name)
+  { node: "Marefoil", items: [248823] }, // Marefoil (Forever-only node, same name)
+  // Herbs gathered from another herb's node, by the object ids QuestieDB lists as their drop sources.
+  { ids: [1620, 1621], items: [2452] }, // Swiftthistle: Mageroyal and Briarthorn nodes (Questie ids 1620, 1621)
+  { ids: [142140], items: [8153] }, // Wildvine: Purple Lotus node (Questie id 142140)
+  // Bloodvine: the Zul'Gurub Sungrass, Purple Lotus, Silversage, Sansam and Dreamfoil nodes
+  { ids: [180164, 180165, 180166, 180167, 180168], items: [19726] },
+  // Ore veins: ore, its stone and the gems (Questie lists Shadowgem for Copper, Tin and Silver, and so on).
+  // Copper Ore, Rough Stone, Malachite, Tigerseye, Shadowgem
+  { node: "Copper Vein", items: [2770, 2835, 774, 818, 1210] },
+  // Forever-only low yield vein: Copper Ore by its name, no stone or gem data
+  { node: "Poor Copper Vein", items: [2770] },
+  // Tin Ore, Coarse Stone, Moss Agate, Shadowgem, Jade, Lesser Moonstone
+  { node: "Tin Vein", items: [2771, 2836, 1206, 1210, 1529, 1705] },
+  { node: "Silver Vein", items: [2775, 1206, 1210, 1705] }, // Silver Ore, Moss Agate, Shadowgem, Lesser Moonstone
+  { node: "Ooze Covered Silver Vein", items: [2775, 1206, 1210, 1705] }, // same as Silver Vein
+  { node: "Gold Vein", items: [2776, 1529, 1705, 3864] }, // Gold Ore, Jade, Lesser Moonstone, Citrine
+  { node: "Ooze Covered Gold Vein", items: [2776, 1529, 1705, 3864] }, // same as Gold Vein
+  // Iron Ore, Heavy Stone, Jade, Lesser Moonstone, Citrine, Aquamarine
+  { node: "Iron Deposit", items: [2772, 2838, 1529, 1705, 3864, 7909] },
+  // Mithril Ore, Solid Stone, Citrine, Aquamarine, Star Ruby
+  { node: "Mithril Deposit", items: [3858, 7912, 3864, 7909, 7910] },
+  { node: "Ooze Covered Mithril Deposit", items: [3858, 7912, 3864, 7909, 7910] }, // same as Mithril Deposit
+  { node: "Truesilver Deposit", items: [7911, 3864, 7909, 7910] }, // Truesilver Ore, Citrine, Aquamarine, Star Ruby
+  { node: "Ooze Covered Truesilver Deposit", items: [7911, 3864, 7909, 7910] }, // same as Truesilver Deposit
+  // Thorium veins all yield Thorium Ore, Dense Stone and the high gems.
+  // Thorium Ore, Dense Stone, Star Ruby, Blue Sapphire, Arcane Crystal, Huge Emerald, Large Opal, Azerothian Diamond
+  { node: "Small Thorium Vein", items: [10620, 12365, 7910, 12361, 12363, 12364, 12799, 12800] },
+  // same as Small Thorium Vein
+  { node: "Rich Thorium Vein", items: [10620, 12365, 7910, 12361, 12363, 12364, 12799, 12800] },
+  { node: "Ooze Covered Thorium Vein", items: [10620, 12365, 7910, 12361, 12363, 12364, 12799, 12800] }, // same
+  { node: "Ooze Covered Rich Thorium Vein", items: [10620, 12365, 7910, 12361, 12363, 12364, 12799, 12800] }, // same
+  { node: "Hakkari Thorium Vein", items: [10620, 12365, 7910, 12361, 12363, 12364, 12799, 12800] }, // same (Zul'Gurub)
+  { node: "Dark Iron Deposit", items: [11370] }, // Dark Iron Ore
+  { node: "Heavy Thorium Vein", items: [248815] }, // Heavy Thorium Ore (Forever-only, same name)
+  // Pyrite (Forever-only: fool's gold is pyrite; by name only, flagged for review)
+  { node: "Fool's Gold Vein", items: [249391] },
+  // Not mapped on purpose: Coal, Guardian Stone, Sulfuron Ingot, Elementium Ore, Elemental Flux (no node drops them),
+  // Bauxite, Pitchblende (no node known), Obsidian Shards (their chunks have no spawns), Cold Iron Deposit,
+  // Spectral Iron Deposit and Starsilver Vein (Forever-only, yield unknown), Deathweed, Morrowgrain, the seeds,
+  // Death Lotus, Frilled Lichen, Rosecap, Stranglevine (no node known).
+];
+// Locations are kept only for these professions: the UI shows a "Found in" line for herbs and ores.
+const LOCATION_PROFESSIONS = ["herbalism", "mining"];
+
 const BAG_FAMILY_CHECKS = [
   { bit: 8, label: "leatherworking bag", profession: "skinning" },
   { bit: 32, label: "herb bag", profession: "herbalism" },
@@ -137,6 +229,18 @@ const downloadTable = async (table) => {
     await rename(`${file}.partial`, file);
   }
   return parseCsv(await readFile(file, "utf8"));
+};
+
+const downloadQuestieFile = async (file) => {
+  const target = path.join(CACHE_DIR, `questiedb-${QUESTIE_COMMIT}`, path.basename(file));
+  if (!(await exists(target))) {
+    log(`downloading QuestieDB ${file}`);
+    const response = await fetchOk(`https://raw.githubusercontent.com/Questie/QuestieDB/${QUESTIE_COMMIT}/${file}`);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(`${target}.partial`, await response.text());
+    await rename(`${target}.partial`, target);
+  }
+  return readFile(target, "utf8");
 };
 
 // Reads the community listfile and keeps only interface/icons/<name>.blp rows (id;path), cached trimmed.
@@ -347,8 +451,37 @@ const main = async () => {
     gatherables: gatherables[CLOTH_KEY] ?? [],
   });
 
+  // Known locations: zone names per Herbalism and Mining gatherable, most spawns first.
+  const [areaRows, objectText, deltaText] = await Promise.all([
+    downloadTable("AreaTable"), ...QUESTIE_FILES.map(downloadQuestieFile),
+  ]);
+  const locatable = new Set(LOCATION_PROFESSIONS.flatMap((key) => gatherables[key] ?? []));
+  for (const item of LOCATION_RULES.flatMap((rule) => rule.items)) {
+    if (!locatable.has(item)) {
+      throw new Error(`location rule item ${item} is not a Herbalism or Mining gatherable in the data`);
+    }
+  }
+  const areaNames = new Map(areaRows.map((row) => [toInt(row.ID), row.AreaName_lang]));
+  const { located, unmatched } = locateItems(readQuestieObjects(objectText, deltaText), LOCATION_RULES);
+  const locationItems = {};
+  const unnamedZones = new Set();
+  for (const item of [...located.keys()].sort((a, b) => a - b)) {
+    const { names, unnamed } = zoneNamesByCount(located.get(item), areaNames);
+    unnamed.forEach((zone) => unnamedZones.add(zone));
+    if (names.length > 0) {
+      locationItems[item] = names;
+    }
+  }
+  const locations = {
+    source: `QuestieDB ${QUESTIE_COMMIT} (GPLv3, https://github.com/Questie/QuestieDB): `
+      + "only the zones each node spawns in, no files or coordinates",
+    build: BUILD,
+    items: locationItems,
+  };
+
   await mkdir(OUT_DIR, { recursive: true });
   const files = {
+    "locations.json": locations,
     "professions.json": output,
     "recipes.json": recipes,
     "items.json": items,
@@ -365,6 +498,14 @@ const main = async () => {
     const gatherableCount = String(profession.gatherables.length).padStart(11);
     log(`${profession.name.padEnd(16)} ${String(count).padStart(7)}  ${gatherableCount}`);
   }
+  log(`\nlocations for ${Object.keys(locationItems).length} of ${locatable.size} Herbalism and Mining gatherables`);
+  for (const key of LOCATION_PROFESSIONS) {
+    const lacking = (gatherables[key] ?? []).filter((id) => !locationItems[id]);
+    log(`  ${key} without locations: ${lacking.map((id) => `${id} ${items[id].name}`).join(", ") || "none"}`);
+  }
+  const unmatchedNames = unmatched.map((rule) => rule.node ?? rule.ids.join("/")).join(", ");
+  log(`  rules matching no object with spawns: ${unmatchedNames || "none"}`);
+  log(`  spawn zones without an AreaTable name, skipped: ${[...unnamedZones].join(", ") || "none"}`);
   log(`\nrecipes ${recipes.length}, items ${itemIds.size}, items without icon ${withoutIcon}`);
 
   // Validation of the gatherable assumptions against the live data.

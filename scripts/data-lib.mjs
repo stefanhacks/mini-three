@@ -134,3 +134,200 @@ export const classifyGatherables = (items, recipes, allowLists = {}) => {
   }
   return result;
 };
+
+// Parses the subset of Lua that QuestieDB's entity tables use: tables, strings, numbers, nil, booleans,
+// `-- comments`, `[number]` and `[a.b]` keys, and bare dotted names as values (kept as { ref: "a.b" }).
+// A table becomes { list, map }: positional values in order (nil stays null) and keyed values by key.
+// Number keys are numbers, dotted-name keys are strings. Throws on anything else, with the offset.
+export const parseLua = (text) => {
+  let pos = 0;
+  const fail = (message) => {
+    throw new Error(`Lua parse error at ${pos}: ${message} near ${JSON.stringify(text.slice(pos, pos + 30))}`);
+  };
+  const skip = () => {
+    for (;;) {
+      while (pos < text.length && /\s/.test(text[pos])) {
+        pos += 1;
+      }
+      if (text.startsWith("--", pos)) {
+        const end = text.indexOf("\n", pos);
+        pos = end === -1 ? text.length : end;
+      } else {
+        return;
+      }
+    }
+  };
+  const readName = () => {
+    const match = /^[A-Za-z_][A-Za-z0-9_.]*/.exec(text.slice(pos, pos + 80));
+    if (!match) {
+      fail("expected a name");
+    }
+    pos += match[0].length;
+    return match[0];
+  };
+  const readString = () => {
+    const quote = text[pos];
+    let out = "";
+    pos += 1;
+    while (pos < text.length && text[pos] !== quote) {
+      if (text[pos] === "\\") {
+        pos += 1;
+        const escapes = { n: "\n", t: "\t" };
+        out += escapes[text[pos]] ?? text[pos];
+      } else {
+        out += text[pos];
+      }
+      pos += 1;
+    }
+    if (pos >= text.length) {
+      fail("unterminated string");
+    }
+    pos += 1;
+    return out;
+  };
+  const readValue = () => {
+    skip();
+    const ch = text[pos];
+    if (ch === "{") {
+      return readTable();
+    }
+    if (ch === "\"" || ch === "'") {
+      return readString();
+    }
+    const number = /^-?\d+(\.\d+)?([eE][-+]?\d+)?/.exec(text.slice(pos, pos + 40));
+    if (number) {
+      pos += number[0].length;
+      return Number(number[0]);
+    }
+    const name = readName();
+    const literals = { nil: null, true: true, false: false };
+    return name in literals ? literals[name] : { ref: name };
+  };
+  const readTable = () => {
+    const table = { list: [], map: new Map() };
+    pos += 1;
+    for (;;) {
+      skip();
+      if (text[pos] === "}") {
+        pos += 1;
+        return table;
+      }
+      if (text[pos] === "[") {
+        pos += 1;
+        skip();
+        const key = /[0-9-]/.test(text[pos]) ? readValue() : readName();
+        skip();
+        if (text[pos] !== "]") {
+          fail("expected ]");
+        }
+        pos += 1;
+        skip();
+        if (text[pos] !== "=") {
+          fail("expected =");
+        }
+        pos += 1;
+        table.map.set(key, readValue());
+      } else {
+        table.list.push(readValue());
+      }
+      skip();
+      if (text[pos] === "," || text[pos] === ";") {
+        pos += 1;
+      } else if (text[pos] !== "}") {
+        fail("expected , or }");
+      }
+    }
+  };
+  skip();
+  const value = readValue();
+  skip();
+  if (pos < text.length) {
+    fail("trailing text");
+  }
+  return value;
+};
+
+// Reads QuestieDB's Forever object tables into Map<objectId, { name, zones: Map<zoneId, spawnCount> }>.
+// rawText: data/Forever/foreverObjectDB.lua (a `[[return { [id] = {name, questStarts, questEnds, spawns, zone} }]]`
+// string, spawns being the 4th positional field). deltaText: src/corrections/Forever/generated/foreverBaseObject.lua,
+// whose entries override the raw ones with `[objectKeys.name]` and `[objectKeys.spawns]` keys.
+// Only the name and the number of spawn points per zone are kept: coordinates are dropped here on purpose.
+export const readQuestieObjects = (rawText, deltaText) => {
+  const spawnCounts = (spawns) => {
+    const zones = new Map();
+    if (spawns && typeof spawns === "object") {
+      for (const [zone, points] of spawns.map) {
+        zones.set(zone, points.list.length);
+      }
+    }
+    return zones;
+  };
+  const objects = new Map();
+  const rawStart = rawText.indexOf("[[return {");
+  const rawEnd = rawText.lastIndexOf("}]]");
+  if (rawStart === -1 || rawEnd === -1) {
+    throw new Error("object table not found: expected [[return { ... }]]");
+  }
+  const raw = parseLua(rawText.slice(rawStart + "[[return ".length, rawEnd + 1));
+  for (const [id, entry] of raw.map) {
+    objects.set(id, { name: entry.list[0], zones: spawnCounts(entry.list[3]) });
+  }
+  const deltaStart = deltaText.indexOf("return {");
+  const deltaEnd = deltaText.lastIndexOf("}");
+  if (deltaStart === -1) {
+    throw new Error("delta table not found: expected return { ... }");
+  }
+  const delta = parseLua(deltaText.slice(deltaStart + "return ".length, deltaEnd + 1));
+  for (const [id, entry] of delta.map) {
+    const merged = objects.get(id) ?? { name: undefined, zones: new Map() };
+    if (entry.map.has("objectKeys.name")) {
+      merged.name = entry.map.get("objectKeys.name");
+    }
+    if (entry.map.has("objectKeys.spawns")) {
+      merged.zones = spawnCounts(entry.map.get("objectKeys.spawns"));
+    }
+    objects.set(id, merged);
+  }
+  return objects;
+};
+
+// Sums spawn counts per item and zone. objects: the Map from readQuestieObjects.
+// rules: [{ node: "<object name>" } or { ids: [<object id>] }, items: [<item id>]]: every object matching the rule
+// (all objects with that exact name, or just those ids) yields every listed item.
+// Returns Map<itemId, Map<zoneId, spawnCount>> and the rules that matched no object with spawns.
+export const locateItems = (objects, rules) => {
+  const located = new Map();
+  const unmatched = [];
+  for (const rule of rules) {
+    const matches = [...objects.entries()].filter(([id, object]) => object.zones.size > 0
+      && (rule.ids ? rule.ids.includes(id) : object.name === rule.node));
+    if (matches.length === 0) {
+      unmatched.push(rule);
+    }
+    for (const item of rule.items) {
+      const zones = located.get(item) ?? new Map();
+      for (const [, object] of matches) {
+        for (const [zone, count] of object.zones) {
+          zones.set(zone, (zones.get(zone) ?? 0) + count);
+        }
+      }
+      if (zones.size > 0) {
+        located.set(item, zones);
+      }
+    }
+  }
+  return { located, unmatched };
+};
+
+// Turns { zoneId: count } into zone names, most spawns first (ties by name). Zones without a name are returned apart.
+export const zoneNamesByCount = (zones, nameById) => {
+  const named = [];
+  const unnamed = [];
+  for (const [zone, count] of zones) {
+    const name = nameById.get(zone);
+    (name ? named : unnamed).push({ zone, name, count });
+  }
+  named.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  const names = [...new Set(named.map((entry) => entry.name))];
+  return { names, unnamed: unnamed.map((entry) => entry.zone) };
+};

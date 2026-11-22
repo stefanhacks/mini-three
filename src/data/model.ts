@@ -1,4 +1,6 @@
-import { CLOTH_KEY, type Item, type Profession, type ProfessionKey, type Recipe, items, professions, recipes } from ".";
+import {
+  CLOTH_KEY, type Item, type Profession, type ProfessionKey, type Recipe, items, locations, professions, recipes,
+} from ".";
 
 /** Icon basenames (zamimg) for the profession tabs, picker and portrait. */
 export const PROFESSION_ICONS: Record<ProfessionKey, string> = {
@@ -49,3 +51,6 @@ export const gathererOf = (itemId: number): Profession | undefined =>
 export const itemOf = (id: number): Item => items[String(id)] ?? { name: `Item ${id}`, quality: 1, icon: null };
 
 export const recipeKey = (recipe: Recipe): string => `${recipe.profession}:${recipe.id}`;
+
+/** Zone names where an item's node spawns (most spawns first). Empty for items without known nodes. */
+export const locationsOf = (id: number): string[] => locations.items[String(id)] ?? [];

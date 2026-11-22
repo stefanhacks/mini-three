@@ -1,11 +1,13 @@
 import "./style.css";
 import { Application } from "pixi.js";
 import { syncBackHistory } from "./app/backHistory";
+import { cancelEdit, cancelEditOnLeave, saveEdit, setDraft } from "./app/notesEdit";
 import { fromSaved, loadSaved, persist } from "./app/storage";
 import { createStore } from "./app/store";
 import { professions } from "./data";
 import { PALETTE, createArtKit, createBackdrop, loadFonts } from "./ui/art";
 import { type LayoutMode, desktopScale, layoutMode } from "./ui/layout";
+import { selectionKey } from "./ui/popup/detail";
 import { createNotesField } from "./ui/popup/notesField";
 import {
   MOBILE_BUTTON_HEIGHT, type Popup, TABS_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, createPopup,
@@ -40,15 +42,13 @@ const store = createStore(fromSaved(loadSaved(new Set(professions.map((professio
 persist(store);
 app.stage.addChild(backdrop.view);
 
-const notesField = createNotesField((key, text) => {
-  const notes = { ...store.get().notes };
-  if (text === "") {
-    delete notes[key];
-  } else {
-    notes[key] = text;
-  }
-  store.set({ notes });
+const notesField = createNotesField({
+  onInput: (key, text) => setDraft(store, key, text),
+  onSave: () => saveEdit(store),
+  onCancel: () => cancelEdit(store),
 });
+// Leaving the entry being edited cancels the edit. Before any popup subscribes, so views never see a stale edit.
+cancelEditOnLeave(store, (state) => selectionKey(state.selection));
 
 let mode: LayoutMode | null = null;
 let built = { width: 0, height: 0 };

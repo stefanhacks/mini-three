@@ -1,6 +1,7 @@
 import professionsJson from "./professions.json";
 import recipesJson from "./recipes.json";
 import itemsJson from "./items.json";
+import locationsJson from "./locations.json";
 
 // Key of the synthetic Cloth entry (not a SkillLine): cloth that no recipe creates, whoever uses it.
 export const CLOTH_KEY = "cloth";
@@ -87,3 +88,15 @@ export interface Item {
 export const professions = professionsJson as unknown as Profession[];
 export const recipes = recipesJson as unknown as Recipe[];
 export const items = itemsJson as unknown as Record<string, Item>;
+
+// Where a Herbalism or Mining gatherable's nodes spawn in Forever. Derived from QuestieDB, see `source`.
+export interface Locations {
+  // Credit line for the data source and what was kept from it.
+  source: string;
+  // Client build the zone names come from.
+  build: string;
+  // Item id to English zone names, the zone with most spawns first. Items without nodes have no entry.
+  items: Record<string, string[]>;
+}
+
+export const locations = locationsJson as unknown as Locations;
