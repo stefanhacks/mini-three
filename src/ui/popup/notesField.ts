@@ -15,12 +15,18 @@ export interface NotesField {
    * popup's world scale: the element is laid out at full size and scaled from its top-left corner, so text, caret
    * and IME follow the canvas art. Cheap to call every frame.
    */
-  place: (x: number, y: number, width: number, height: number, scale: number) => void;
+  place: (x: number, y: number, width: number, height: number, scale: number, clip?: Clip) => void;
   /** Hides an open field without closing it, while its pane moves. Hiding blurs it. */
   setVisible: (visible: boolean) => void;
   /** Font size in CSS px. Phones get 16: iOS zooms the page into any smaller field on focus. */
   setTextSize: (size: number) => void;
   element: HTMLTextAreaElement;
+}
+
+/** How much of the field to cut off at its top and bottom, in unscaled px (it scrolled past the pane's edge). */
+export interface Clip {
+  top: number;
+  bottom: number;
 }
 
 export const NOTES_TEXT_SIZE = 13;
@@ -109,7 +115,9 @@ export const createNotesField = ({ onInput, onSave, onCancel }: NotesFieldHandle
   // focused (closing the phone's keyboard). Swallow the mousedown that arrives right after focus().
   let guardUntil = 0;
   document.addEventListener("mousedown", (event) => {
-    if (performance.now() < guardUntil && event.target !== area) {
+    // Only canvas presses: a press on another DOM field (the search input) must still focus it.
+    if (performance.now() < guardUntil && !(event.target instanceof HTMLInputElement)
+      && !(event.target instanceof HTMLTextAreaElement)) {
       event.preventDefault();
     }
   }, true);
@@ -147,8 +155,8 @@ export const createNotesField = ({ onInput, onSave, onCancel }: NotesFieldHandle
       Object.assign(area.style, size);
       return needed;
     },
-    place: (x, y, width, height, scale) => {
-      const next = `${x}|${y}|${width}|${height}|${scale}`;
+    place: (x, y, width, height, scale, clip = { top: 0, bottom: 0 }) => {
+      const next = `${x}|${y}|${width}|${height}|${scale}|${clip.top}|${clip.bottom}`;
       if (next === placed) {
         return;
       }
@@ -157,6 +165,7 @@ export const createNotesField = ({ onInput, onSave, onCancel }: NotesFieldHandle
         transform: `translate(${x}px, ${y}px) scale(${scale})`,
         width: `${width}px`,
         height: `${height}px`,
+        clipPath: clip.top > 0 || clip.bottom > 0 ? `inset(${clip.top}px 0 ${clip.bottom}px 0)` : "",
       });
       size = { width: `${width}px`, height: `${height}px` };
     },
