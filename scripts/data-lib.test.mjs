@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { classifyGatherables, parseCsv, parseCsvRows } from "./data-lib.mjs";
+import {
+  classifyGatherables, locateItems, parseCsv, parseCsvRows, parseLua, readQuestieObjects, zoneNamesByCount,
+} from "./data-lib.mjs";
 
 describe("parseCsvRows", () => {
   it("keeps commas, escaped quotes and newlines inside quoted fields", () => {
@@ -68,5 +70,68 @@ describe("classifyGatherables", () => {
 
   it("ignores reagents missing from the item table", () => {
     expect(classifyGatherables(items, [recipe("alchemy", [404])])).toEqual({});
+  });
+});
+
+describe("parseLua", () => {
+  it("reads nested tables, nil placeholders, comments, escapes and keyed entries", () => {
+    const text = "{ -- note\n [7] = {'It\\'s',nil,{1,2},{[40]={{1.5,-2},{3,4}}},40},\n"
+      + " [objectKeys.name] = \"x\", [9] = zoneIDs.A }";
+    const table = parseLua(text);
+    const seven = table.map.get(7);
+    expect(seven.list[0]).toBe("It's");
+    expect(seven.list[1]).toBeNull();
+    expect(seven.list[3].map.get(40).list[0].list).toEqual([1.5, -2]);
+    expect(table.map.get("objectKeys.name")).toBe("x");
+    expect(table.map.get(9)).toEqual({ ref: "zoneIDs.A" });
+  });
+
+  it("fails loudly on text it does not understand", () => {
+    expect(() => parseLua("{ 1, 2")).toThrow(/Lua parse error/);
+    expect(() => parseLua("{1} extra")).toThrow(/trailing/);
+  });
+});
+
+describe("readQuestieObjects", () => {
+  const raw = "x = [[return {\n[1] = {\"Peacebloom\",nil,nil,{[1]={{1,1},{2,2}},[2]={{3,3}}},1},\n"
+    + "[2] = {\"Chest\",nil,nil,nil,0},\n}]]\n";
+  const delta = "return {\n [1] = { -- a\n [objectKeys.spawns] = {[5] = {{1, 1}}},\n [objectKeys.zoneID] = zoneIDs.X,\n"
+    + " },\n"
+    + " [3] = { [objectKeys.name] = \"Gold Vein\", [objectKeys.spawns] = {[9] = {{1, 1}, {2, 2}}} },\n}\nend\nreturn M";
+
+  it("counts spawns per zone and lets the delta override the raw spawns and add objects", () => {
+    const objects = readQuestieObjects(raw, delta);
+    expect(objects.get(1)).toEqual({ name: "Peacebloom", zones: new Map([[5, 1]]) });
+    expect(objects.get(2).zones.size).toBe(0);
+    expect(objects.get(3)).toEqual({ name: "Gold Vein", zones: new Map([[9, 2]]) });
+  });
+});
+
+describe("locateItems and zoneNamesByCount", () => {
+  const objects = new Map([
+    [1, { name: "Copper Vein", zones: new Map([[1, 2], [2, 5]]) }],
+    [2, { name: "Copper Vein", zones: new Map([[1, 4]]) }],
+    [3, { name: "Mageroyal", zones: new Map([[3, 1]]) }],
+    [4, { name: "Mageroyal", zones: new Map([[4, 9]]) }],
+  ]);
+
+  it("sums every object of a name, restricts rules by id and reports rules with no spawns", () => {
+    const rules = [
+      { node: "Copper Vein", items: [10, 11] },
+      { ids: [3], items: [12] },
+      { node: "Nothing", items: [13] },
+    ];
+    const { located, unmatched } = locateItems(objects, rules);
+    expect(located.get(10)).toEqual(new Map([[1, 6], [2, 5]]));
+    expect(located.get(11)).toEqual(located.get(10));
+    expect(located.get(12)).toEqual(new Map([[3, 1]]));
+    expect(located.has(13)).toBe(false);
+    expect(unmatched).toEqual([rules[2]]);
+  });
+
+  it("orders zone names by spawn count, ties by name, and returns unnamed zones apart", () => {
+    const names = new Map([[1, "Zeta"], [2, "Alpha"], [3, "Beta"]]);
+    const zones = new Map([[1, 5], [2, 5], [3, 9], [4, 1]]);
+    expect(zoneNamesByCount(zones, names)).toEqual({ names: ["Beta", "Alpha", "Zeta"], unnamed: [4] });
   });
 });
