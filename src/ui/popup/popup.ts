@@ -262,7 +262,9 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
       store.set({ search: null });
     }
   }, g.professions.h);
-  const noMatches = label("No matches.", TEXT_STYLES.muted, g.list.x + (g.list.w - 17) / 2, g.list.y + 32, 0.5);
+  // In the first row under the search field's slot (search is always open when nothing matches).
+  const noMatches = label("No matches.", TEXT_STYLES.muted, g.list.x + (g.list.w - 17) / 2,
+    g.search.y + searchInset(g.search) + g.rows.row / 2, 0.5);
   noMatches.visible = false;
 
   const browse = new Container();
