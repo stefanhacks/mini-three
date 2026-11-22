@@ -6,7 +6,7 @@ import {
   PROFESSION_ICONS, gathererOf, itemOf, locationsOf, professionByKey, recipeKey, recipesUsingItem,
 } from "../../data/model";
 import { type ArtKit, PALETTE, TEXT_STYLES, createStoneOverlay } from "../art";
-import { at, button, checkbox, itemSlot, label, piece, qualityColor, tinted } from "../widgets";
+import { at, button, checkbox, iconSprite, itemSlot, label, piece, qualityColor, tinted } from "../widgets";
 import { createDragScroll } from "./dragScroll";
 
 export type Selection = { kind: "recipe"; recipe: Recipe } | { kind: "item"; itemId: number } | null;
@@ -34,8 +34,9 @@ export interface DetailPane {
 
 interface DetailHandlers {
   onSelectItem: (itemId: number) => void;
+  /** The Known checkbox, shown only while editing: it changes the edit's draft, which Save keeps. */
   onToggleKnown: (recipe: Recipe, known: boolean) => void;
-  /** The Edit button beside the "Notes" label. */
+  /** The Edit button in the pane's bottom-right corner. */
   onEditNote: () => void;
   /** Save and Cancel replace Edit while editing. */
   onSaveNote: () => void;
@@ -100,6 +101,10 @@ export const createDetailPane = (
   view.addChild(content, mask);
   let body = new Container();
   content.addChild(body);
+  // Edit sits in the pane's bottom-right corner, out of the way and fixed while the content scrolls.
+  const edit = button(kit, "Edit", EDIT_WIDTH, handlers.onEditNote, EDIT_HEIGHT);
+  view.addChild(at(edit.view, width - PAD / 2 - EDIT_WIDTH, height - PAD / 2 - EDIT_HEIGHT));
+  edit.view.visible = false;
 
   let scroll = 0;
   let contentHeight = 0;
@@ -145,8 +150,8 @@ export const createDetailPane = (
   };
 
   /**
-   * "Notes" label with the Edit button, then the note as wrapped text. While editing (`editHeight` set) the buttons
-   * are Save and Cancel and the text gives way to an empty block of that height, where the textarea sits.
+   * "Notes" label, then the note as wrapped text. While editing (`editHeight` set) Save and Cancel join the label
+   * and the text gives way to an empty block of that height, where the textarea sits.
    * Returns the y under the block.
    */
   const noteBlock = (top: number, text: string, editHeight: number | null): number => {
@@ -155,6 +160,7 @@ export const createDetailPane = (
     const buttonY = labelY - EDIT_HEIGHT / 2;
     const textY = labelY + NOTE_LABEL_GAP - 6;
     if (editHeight !== null) {
+      // Save and Cancel stay on the "Notes:" line, next to the textarea: on a phone the keyboard covers the corner.
       const save = button(kit, "Save", EDIT_WIDTH, handlers.onSaveNote, EDIT_HEIGHT);
       const cancel = button(kit, "Cancel", EDIT_WIDTH, handlers.onCancelNote, EDIT_HEIGHT);
       body.addChild(at(save.view, PAD + inner - EDIT_WIDTH * 2 - EDIT_GAP, buttonY));
@@ -165,8 +171,6 @@ export const createDetailPane = (
       note = { x: PAD, y: textY, width: inner, height: editHeight };
       return textY + editHeight;
     }
-    const edit = button(kit, "Edit", EDIT_WIDTH, handlers.onEditNote, EDIT_HEIGHT);
-    body.addChild(at(edit.view, PAD + inner - EDIT_WIDTH, buttonY));
     const shown = text.trim() === ""
       ? label("No notes yet.", TEXT_STYLES.muted, PAD, textY, 0, 0)
       : label(text, TEXT_STYLES.body, PAD, textY, 0, 0);
@@ -195,6 +199,7 @@ export const createDetailPane = (
   const showRecipe = (recipe: Recipe, known: boolean, text: string, editHeight: number | null): number => {
     const profession = professionByKey.get(recipe.profession);
     const created = recipe.item ? itemOf(recipe.item) : null;
+    const editing = editHeight !== null;
     // Most recipes are learnable at skill 1; the yellow and grey thresholds say when it is worth crafting.
     const subtitle = [
       `${profession?.name ?? ""}${recipe.minSkill > 1 ? ` ${recipe.minSkill}` : ""}`,
@@ -202,11 +207,19 @@ export const createDetailPane = (
       recipe.count && recipe.count > 1 ? `creates ${recipe.count}` : "",
     ].filter(Boolean).join("  ·  ");
     const underDivider = heading(created?.icon ?? PROFESSION_ICONS[recipe.profession], created?.quality ?? 1,
-      recipe.name, created ? qualityColor(created.quality) : PALETTE.text.header, subtitle, KNOWN_WIDTH);
-    // Known sits at the heading's top right, where the game shows its favourite star.
-    const knownBox = checkbox(kit, "Known", TEXT_STYLES.row,
-      (checked) => handlers.onToggleKnown(recipe, checked), known);
-    body.addChild(at(knownBox.view, PAD + inner - 72, PAD + 2));
+      recipe.name, created ? qualityColor(created.quality) : PALETTE.text.header, subtitle,
+      editing || known ? KNOWN_WIDTH : 0);
+    if (!editing && known) {
+      // While reading, the known flag is a quiet tag in the corner where the checkbox appears in edit mode.
+      body.addChild(iconSprite(kit.icons.check, PAD + inner - 62, PAD + 12, PALETTE.gold.light, 0.8));
+      body.addChild(label("Known", TEXT_STYLES.muted, PAD + inner - 50, PAD + 12));
+    }
+    if (editing) {
+      // Known sits at the heading's top right, where the game shows its favourite star. Save keeps it.
+      const knownBox = checkbox(kit, "Known", TEXT_STYLES.row,
+        (checked) => handlers.onToggleKnown(recipe, checked), known);
+      body.addChild(at(knownBox.view, PAD + inner - 72, PAD + 2));
+    }
 
     const top = noteBlock(underDivider, text, editHeight) + SECTION_GAP;
     body.addChild(label("Reagents:", TEXT_STYLES.label, PAD, top));
@@ -281,8 +294,10 @@ export const createDetailPane = (
       } else {
         const bottom = selection.kind === "recipe" ? showRecipe(selection.recipe, known, text, editHeight)
           : showItem(selection.itemId, text, editHeight);
-        contentHeight = bottom + PAD;
+        // Room under the content for the corner Edit button, so the last line never hides behind it.
+        contentHeight = bottom + PAD + (editHeight === null ? EDIT_HEIGHT : 0);
       }
+      edit.view.visible = selection !== null && editHeight === null;
       if (key !== shownKey) {
         drag.stop();
         scroll = 0;

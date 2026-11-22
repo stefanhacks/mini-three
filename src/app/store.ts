@@ -17,8 +17,11 @@ export interface AppState {
   knownOnly: boolean;
   /** Notes by `recipeKey` (recipes) or `item:<id>` (items). Saved. */
   notes: Readonly<Record<string, string>>;
-  /** The note being edited and its unsaved text. Transient: never saved, and cleared when the entry is left. */
-  editing: { key: string; draft: string } | null;
+  /**
+   * The entry being edited: its unsaved note text and, for recipes, its unsaved known flag (absent for items).
+   * Transient: never saved, and cleared when the entry is left.
+   */
+  editing: { key: string; draft: string; known?: boolean } | null;
 }
 
 export interface Store {

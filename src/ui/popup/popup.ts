@@ -1,5 +1,5 @@
 import { Container, Graphics, Rectangle, type Ticker } from "pixi.js";
-import { cancelEdit, saveEdit, startEdit } from "../../app/notesEdit";
+import { cancelEdit, saveEdit, setKnownDraft, startEdit } from "../../app/notesEdit";
 import type { AppState, Store } from "../../app/store";
 import type { ProfessionKey } from "../../data";
 import { PROFESSION_ICONS, itemOf, professionByKey, recipeKey, recipesByProfession } from "../../data/model";
@@ -205,19 +205,12 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   }, ticker, g.rows);
   const detail = createDetailPane(kit, g.detail.w, g.detail.h, ticker, {
     onSelectItem: (itemId) => store.set({ selection: { kind: "item", itemId }, detailOpen: true }),
-    onToggleKnown: (recipe, isKnown) => {
-      const known = new Set(store.get().known);
-      if (isKnown) {
-        known.add(recipeKey(recipe));
-      } else {
-        known.delete(recipeKey(recipe));
-      }
-      store.set({ known });
-    },
+    onToggleKnown: (_recipe, isKnown) => setKnownDraft(store, isKnown),
     onEditNote: () => {
-      const key = selectionKey(store.get().selection);
+      const { selection } = store.get();
+      const key = selectionKey(selection);
       if (key) {
-        startEdit(store, key);
+        startEdit(store, key, selection?.kind === "recipe");
         // Inside the press, so phones raise the keyboard.
         notesField.focus();
       }
@@ -431,8 +424,11 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   const showDetail = () => {
     const { selection, known, notes, editing } = store.get();
     const key = selectionKey(selection);
-    detail.show(selection, selection?.kind === "recipe" && known.has(recipeKey(selection.recipe)),
-      key ? notes[key] ?? "" : "", editing && editing.key === key ? editHeight : null);
+    const editingThis = editing !== null && editing.key === key;
+    // While editing, the checkbox shows the draft's known flag; otherwise the saved one.
+    const isKnown = editingThis && editing.known !== undefined ? editing.known
+      : selection?.kind === "recipe" && known.has(recipeKey(selection.recipe));
+    detail.show(selection, isKnown, key ? notes[key] ?? "" : "", editingThis ? editHeight : null);
   };
 
   /** Sizes the textarea to its text, within the minimum and maximum. True when its height changed. */

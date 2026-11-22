@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { editStillValid, noteFromDraft, withNote } from "./notesEdit";
+import { cancelEdit, editStillValid, noteFromDraft, saveEdit, setKnownDraft, startEdit, withNote } from "./notesEdit";
+import { createStore } from "./store";
 import { MAX_NOTE_LENGTH, emptySaved, fromSaved } from "./storage";
 
 describe("notes editing", () => {
@@ -24,5 +25,19 @@ describe("notes editing", () => {
     expect(editStillValid({ ...base, detailOpen: false }, "item:1")).toBe(false);
     expect(editStillValid({ ...base, view: "picker" }, "item:1")).toBe(false);
     expect(editStillValid({ ...base, editing: null }, "item:1")).toBe(false);
+  });
+
+  it("applies the known flag with the note on Save, and drops both on Cancel", () => {
+    const store = createStore(fromSaved({ ...emptySaved(), chosen: ["alchemy"], active: "alchemy" }));
+    startEdit(store, "alchemy:7837", true);
+    setKnownDraft(store, true);
+    expect(store.get().known.has("alchemy:7837")).toBe(false);
+    cancelEdit(store);
+    expect(store.get().known.has("alchemy:7837")).toBe(false);
+    startEdit(store, "alchemy:7837", true);
+    setKnownDraft(store, true);
+    saveEdit(store);
+    expect(store.get().known.has("alchemy:7837")).toBe(true);
+    expect(store.get().editing).toBeNull();
   });
 });

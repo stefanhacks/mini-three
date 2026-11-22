@@ -20,20 +20,47 @@ export const editStillValid = (state: AppState, selectedKey: string | null): boo
   state.editing !== null && state.editing.key === selectedKey && state.view === "list" && state.active !== null
   && state.detailOpen;
 
-export const startEdit = (store: Store, key: string) => {
-  store.set({ editing: { key, draft: store.get().notes[key] ?? "" } });
+/** `known` with `key` added or removed. */
+export const withKnown = (known: AppState["known"], key: string, isKnown: boolean): AppState["known"] => {
+  const next = new Set(known);
+  if (isKnown) {
+    next.add(key);
+  } else {
+    next.delete(key);
+  }
+  return next;
+};
+
+/** Starts editing `key`. `isRecipe` adds the known flag to the draft, since only recipes have one. */
+export const startEdit = (store: Store, key: string, isRecipe: boolean) => {
+  const { notes, known } = store.get();
+  store.set({ editing: { key, draft: notes[key] ?? "", ...(isRecipe ? { known: known.has(key) } : {}) } });
 };
 
 export const setDraft = (store: Store, key: string, draft: string) => {
-  if (store.get().editing?.key === key) {
-    store.set({ editing: { key, draft } });
+  const { editing } = store.get();
+  if (editing?.key === key) {
+    store.set({ editing: { ...editing, draft } });
+  }
+};
+
+/** The Known checkbox in edit mode: changes the draft only; Save keeps it, Cancel drops it. */
+export const setKnownDraft = (store: Store, isKnown: boolean) => {
+  const { editing } = store.get();
+  if (editing && editing.known !== undefined) {
+    store.set({ editing: { ...editing, known: isKnown } });
   }
 };
 
 export const saveEdit = (store: Store) => {
-  const { editing, notes } = store.get();
+  const { editing, notes, known } = store.get();
   if (editing) {
-    store.set({ notes: withNote(notes, editing.key, noteFromDraft(editing.draft)), editing: null });
+    store.set({
+      notes: withNote(notes, editing.key, noteFromDraft(editing.draft)),
+      ...(editing.known !== undefined && editing.known !== known.has(editing.key)
+        ? { known: withKnown(known, editing.key, editing.known) } : {}),
+      editing: null,
+    });
   }
 };
 
