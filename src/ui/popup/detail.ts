@@ -3,7 +3,7 @@ import {
 } from "pixi.js";
 import { CLOTH_KEY, type Recipe } from "../../data";
 import {
-  PROFESSION_ICONS, gathererOf, itemOf, professionByKey, recipeKey, recipesUsingItem,
+  PROFESSION_ICONS, gathererOf, itemOf, locationsOf, professionByKey, recipeKey, recipesUsingItem,
 } from "../../data/model";
 import { type ArtKit, PALETTE, TEXT_STYLES, createStoneOverlay } from "../art";
 import { at, button, checkbox, itemSlot, label, piece, qualityColor, tinted } from "../widgets";
@@ -227,6 +227,23 @@ export const createDetailPane = (
     return top + 14 + Math.ceil(recipe.reagents.length / columns) * REAGENT_ROW;
   };
 
+  /**
+   * "Found in" for Herbalism and Mining gatherables: the zones their nodes spawn in, most spawns first, as one
+   * wrapped line. Returns the y where the next section starts (unchanged when the item has no known nodes).
+   */
+  const foundIn = (itemId: number, top: number): number => {
+    const zones = locationsOf(itemId);
+    if (zones.length === 0) {
+      return top;
+    }
+    body.addChild(label("Found in:", TEXT_STYLES.label, PAD, top));
+    const list = label(zones.join(", "), TEXT_STYLES.body, PAD + 4, top + 14, 0, 0);
+    list.style = list.style.clone();
+    list.style.wordWrapWidth = inner - 4;
+    body.addChild(list);
+    return top + 14 + list.height + SECTION_GAP;
+  };
+
   const showItem = (itemId: number, text: string, editHeight: number | null): number => {
     const item = itemOf(itemId);
     const gatherer = gathererOf(itemId);
@@ -235,7 +252,7 @@ export const createDetailPane = (
 
     const users = (recipesUsingItem.get(itemId) ?? []).slice()
       .sort((a, b) => a.profession.localeCompare(b.profession) || a.trivialLow - b.trivialLow);
-    const top = noteBlock(underDivider, text, editHeight) + SECTION_GAP;
+    const top = foundIn(itemId, noteBlock(underDivider, text, editHeight) + SECTION_GAP);
     body.addChild(label(`Used in ${users.length} recipe${users.length === 1 ? "" : "s"}:`, TEXT_STYLES.label,
       PAD, top));
     // The pane scrolls, so the whole list is shown.
