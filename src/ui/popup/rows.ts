@@ -49,11 +49,12 @@ export const normalize = (text: string): string => text.normalize("NFD").replace
 
 /**
  * Flattens a profession into list rows: its Camping category first, then its gatherables (one section), then the rest
- * of its recipes by category in the game's category order, each by the skill it is learnable at (recipes with no known level by their yellow skill
- * instead), then yellow skill, then name. Empty sections are skipped; collapsed sections keep their header only.
- * With `knownOnly`, recipes that are not known are left out (and so are sections left empty). With a `query`, only
- * entries whose name contains it stay (a recipe also when one of its reagents does, a gatherable also when one of its
- * zones does: "Mulgore" finds Peacebloom), and collapsed sections open up so every match shows.
+ * of its recipes by category in the game's category order, each by the skill it is learnable at (recipes with no
+ * known level by their yellow skill instead), then yellow skill, then name. Empty sections are skipped; collapsed
+ * sections keep their header only. With `knownOnly`, recipes that are not known are left out (and so are sections left
+ * empty). With a `query`, only entries whose name contains it stay (a recipe also when one of its reagents does, a
+ * gatherable also when one of its zones does: "Mulgore" finds Peacebloom), and collapsed sections open up so every
+ * match shows.
  */
 export const buildRows = (
   profession: Profession, collapsed: ReadonlySet<string>, sources: RowSources, filter: RowFilter,

@@ -37,7 +37,8 @@ describe("buildRows", () => {
 
   it("puts the Camping category above the gatherables", () => {
     const camper: Profession = { ...herbalism, categories: [...herbalism.categories, { id: 4, name: "Camping" }] };
-    const rows = buildRows(camper, new Set(), { ...sources, recipes: [...sources.recipes, recipe(12, 4, 1, "Tent")] }, none);
+    const withTent = { ...sources, recipes: [...sources.recipes, recipe(12, 4, 1, "Tent")] };
+    const rows = buildRows(camper, new Set(), withTent, none);
     expect(rows.filter((row) => row.kind === "header").map((row) => row.label))
       .toEqual(["Camping", "Gathered", "Smelting"]);
   });
