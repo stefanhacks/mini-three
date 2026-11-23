@@ -322,8 +322,9 @@ const main = async () => {
     eraLearns,
     new Set(professions.map((profession) => profession.skillLine)),
   );
-  const learnOrigins = { item: 0, trainer: 0, profession: 0 };
-  const learnLevel = (ability) => {
+  // Where each recipe's level came from, by `<profession>:<spell>`, for the report.
+  const learnOrigin = new Map();
+  const learnLevel = (ability, key) => {
     const spell = toInt(ability.Spell);
     const candidates = [
       ...(taughtByItem.get(spell) ?? []).map((item) => ["item", requiredRankByItem.get(item) ?? 0]),
@@ -333,7 +334,7 @@ const main = async () => {
     if (candidates.length === 0) {
       return undefined;
     }
-    learnOrigins[candidates[0][0]] += 1;
+    learnOrigin.set(key, candidates[0][0]);
     return candidates[0][1];
   };
 
@@ -374,7 +375,7 @@ const main = async () => {
       trivialHigh: toInt(ability.TrivialSkillLineRankHigh),
       source: taughtByItem.has(toInt(ability.Spell)) ? "item" : "trainer",
     };
-    const learn = learnLevel(ability);
+    const learn = learnLevel(ability, key);
     if (learn !== undefined) {
       recipe.learn = learn;
     }
@@ -662,8 +663,10 @@ const main = async () => {
   log(`  spawn zones without an AreaTable name, skipped: ${[...unnamedZones].join(", ") || "none"}`);
   const fromItems = recipes.filter((recipe) => recipe.source === "item").length;
   const unknownLearn = recipes.filter((recipe) => recipe.learn === undefined);
-  log(`\nlearnable level from a recipe item ${learnOrigins.item}, a trainer ${learnOrigins.trainer}, `
-    + `the profession ${learnOrigins.profession}, unknown ${unknownLearn.length}:`);
+  const fromOrigin = (origin) => recipes
+    .filter((recipe) => learnOrigin.get(`${recipe.profession}:${recipe.id}`) === origin).length;
+  log(`\nlearnable level from a recipe item ${fromOrigin("item")}, a trainer ${fromOrigin("trainer")}, `
+    + `the profession ${fromOrigin("profession")}, unknown ${unknownLearn.length}:`);
   log(`  ${unknownLearn.map((recipe) => `${recipe.profession}:${recipe.name}`).join(", ") || "none"}`);
   log(`\nrecipes taught by an item ${fromItems}, by a trainer or with the profession ${recipes.length - fromItems}`);
   log(`\nAlchemy, Cooking and First Aid recipes without a "Use:" description: ${undescribed.length}`);
