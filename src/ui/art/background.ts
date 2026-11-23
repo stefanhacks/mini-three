@@ -1,4 +1,4 @@
-import { BlurFilter, Container, Rectangle, type Renderer, Sprite, type Texture } from "pixi.js";
+import { BlurFilter, Container, type FillGradient, Rectangle, type Renderer, Sprite, type Texture } from "pixi.js";
 import { type BackgroundVariant, DEFAULT_BACKGROUND, nextBackground } from "./backgroundNames";
 import { type DrawContext, createDrawContext, createRandom, rgba } from "./draw";
 
@@ -328,19 +328,6 @@ const ziggurat = (
   ctx.g.rect(x - shrineW * 0.15, stairTop - tierH * 0.9, shrineW * 0.3, tierH * 0.9).fill(dark);
 };
 
-/** A flat-topped butte with its right face in shade. */
-const mesa = (
-  ctx: DrawContext, x: number, baseY: number, width: number, height: number, color: number, shade: number,
-): void => {
-  const top = baseY - height;
-  const inset = width * 0.12;
-  ctx.g.poly([x - width / 2, baseY, x - width / 2 + inset, top, x + width / 2 - inset, top, x + width / 2, baseY])
-    .fill(color);
-  ctx.g.poly([x + width * 0.1, top, x + width / 2 - inset, top, x + width / 2, baseY, x + width * 0.2, baseY])
-    .fill(shade);
-  ctx.g.rect(x - width / 2 + inset, top, width - inset * 2, 3).fill({ color: 0xffffff, alpha: 0.2 });
-};
-
 /** Sand over `points`, with a bright crest that is wider where the slope faces the sun on the right. */
 const dune = (ctx: DrawContext, points: number[], crest: number, body: number, depth: number): void => {
   fillBelow(ctx, points, crest);
@@ -351,24 +338,6 @@ const dune = (ctx: DrawContext, points: number[], crest: number, body: number, d
     const rise = ((points[i - 2] ?? v) - (points[i + 2] ?? v)) / 12;
     return v + depth * Math.min(2, Math.max(0.2, 0.4 + rise * 4));
   }), body);
-};
-
-const cloud = (ctx: DrawContext, random: Random, x: number, y: number, size: number): void => {
-  ctx.g.ellipse(x, y + size * 0.12, size * 0.9, size * 0.18).fill({ color: 0xb8cce0, alpha: 0.9 });
-  for (let i = 0; i < 6; i++) {
-    ctx.g.ellipse(x + (random() - 0.5) * size * 1.4, y - random() * size * 0.2, size * (0.25 + random() * 0.25),
-      size * (0.16 + random() * 0.12)).fill(0xf8fbff);
-  }
-};
-
-const roundTree = (
-  ctx: DrawContext, random: Random, x: number, baseY: number, h: number, trunk: number, crown: number,
-): void => {
-  ctx.g.rect(x - h * 0.04, baseY - h * 0.5, h * 0.08, h * 0.5).fill(trunk);
-  for (let i = 0; i < 3; i++) {
-    ctx.g.circle(x + (random() - 0.5) * h * 0.3, baseY - h * (0.6 + random() * 0.25), h * (0.2 + random() * 0.1))
-      .fill(crown);
-  }
 };
 
 const tent = (ctx: DrawContext, x: number, baseY: number, h: number, color: number, stripe: number): void => {
@@ -383,48 +352,6 @@ const tent = (ctx: DrawContext, x: number, baseY: number, h: number, color: numb
   ctx.g.poly([ax, ay, bx, by, dx, dy, cx, cy]).fill(stripe);
   ctx.g.poly([x, baseY - h, x + w / 2, baseY, x + w * 0.1, baseY]).fill({ color: 0x000000, alpha: 0.18 });
   ctx.g.poly([x - w * 0.08, baseY, x, baseY - h * 0.3, x + w * 0.08, baseY]).fill(0x4a3420);
-};
-
-const flame = (ctx: DrawContext, x: number, baseY: number, height: number, color: number): void => {
-  const w = height * 0.35;
-  ctx.g.moveTo(x - w / 2, baseY).quadraticCurveTo(x - w * 0.6, baseY - height * 0.5, x, baseY - height)
-    .quadraticCurveTo(x + w * 0.6, baseY - height * 0.5, x + w / 2, baseY).closePath().fill(color);
-};
-
-const bonfire = (ctx: DrawContext, random: Random, x: number, baseY: number, size: number): void => {
-  glow(ctx, x, baseY - size * 0.4, size * 3, 0xff7a1a, 0.55);
-  glow(ctx, x, baseY - size * 0.3, size * 1.2, 0xffd060, 0.6);
-  for (let i = 0; i < 4; i++) {
-    const pt = rotator(x, baseY - 6, (i - 1.5) * 0.5);
-    ctx.g.poly([...pt(-size * 0.5, -5), ...pt(size * 0.5, -5), ...pt(size * 0.5, 5), ...pt(-size * 0.5, 5)])
-      .fill(0x1a0806);
-  }
-  const layers: [number, number][] = [[0xc8281a, 1], [0xff7a1a, 0.78], [0xffc23a, 0.55], [0xfff4d0, 0.3]];
-  layers.forEach(([color, scale]) => {
-    for (let i = 0; i < 3; i++) {
-      flame(ctx, x + (random() - 0.5) * size * 0.4 * scale, baseY - 4, size * scale * (0.8 + random() * 0.4), color);
-    }
-  });
-};
-
-/** A painted mask on a pole, crowned with feathers. */
-const mask = (ctx: DrawContext, x: number, y: number, size: number, paint: number): void => {
-  const wood = 0x1a0508;
-  ctx.g.rect(x - size * 0.08, y, size * 0.16, BOTTOM - y).fill(wood);
-  for (let i = 0; i < 7; i++) {
-    leaf(ctx, x, y - size * 0.2, size * 0.9, -Math.PI * 0.9 + (i * Math.PI * 0.8) / 6, i % 2 ? 0xffc93a : paint);
-  }
-  ctx.g.ellipse(x, y, size * 0.4, size * 0.55).fill(0xf2e8dc);
-  ctx.g.poly([x - size * 0.28, y - size * 0.14, x - size * 0.05, y - size * 0.02, x - size * 0.24, y + size * 0.04])
-    .poly([x + size * 0.28, y - size * 0.14, x + size * 0.05, y - size * 0.02, x + size * 0.24, y + size * 0.04])
-    .fill(wood);
-  ctx.g.rect(x - size * 0.32, y + size * 0.1, size * 0.16, size * 0.06)
-    .rect(x + size * 0.16, y + size * 0.1, size * 0.16, size * 0.06)
-    .rect(x - size * 0.04, y - size * 0.5, size * 0.08, size * 0.4).fill(paint);
-  ctx.g.rect(x - size * 0.22, y + size * 0.24, size * 0.44, size * 0.14).fill(wood);
-  for (let i = 0; i < 5; i++) {
-    ctx.g.rect(x - size * 0.19 + i * size * 0.08, y + size * 0.24, size * 0.05, size * 0.06).fill(0xf2e8dc);
-  }
 };
 
 /** A curved tusk rising from `baseY`, bending toward `dir`. */
@@ -443,14 +370,132 @@ const tusk = (ctx: DrawContext, x: number, baseY: number, height: number, dir: 1
   ctx.g.poly([...left, ...right]).fill(color);
 };
 
-const hut = (ctx: DrawContext, x: number, baseY: number, size: number, color: number, light: number): void => {
-  ctx.g.rect(x - size * 0.4, baseY - size * 0.3, size * 0.05, size * 0.3)
-    .rect(x + size * 0.35, baseY - size * 0.3, size * 0.05, size * 0.3)
-    .rect(x - size * 0.4, baseY - size * 0.75, size * 0.8, size * 0.45).fill(color);
-  ctx.g.poly([x - size * 0.6, baseY - size * 0.65, x, baseY - size * 1.5, x + size * 0.6, baseY - size * 0.65])
-    .fill(color);
-  glow(ctx, x, baseY - size * 0.46, size * 0.5, light, 0.4);
-  ctx.g.rect(x - size * 0.1, baseY - size * 0.6, size * 0.2, size * 0.28).fill(light);
+const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
+
+/** A radial fill that fades `color` out to the shape's edge. Make one per colour and reuse it: each is a texture. */
+const softFill = (ctx: DrawContext, color: number): FillGradient =>
+  ctx.radial([[0, rgba(color, 1)], [0.45, rgba(color, 0.6)], [1, rgba(color, 0)]]);
+
+/** A soft-edged ellipse, for painterly clouds, haze and patches of light. */
+const puff = (
+  ctx: DrawContext, fill: FillGradient, x: number, y: number, rx: number, ry: number, alpha: number,
+): void => {
+  ctx.g.ellipse(x, y, rx, ry).fill({ fill, alpha });
+};
+
+/** A tapering rock pillar with its right side in shade. */
+const spire = (ctx: DrawContext, x: number, baseY: number, w: number, h: number, color: number, shade: number) => {
+  const top = baseY - h;
+  ctx.g.poly([x - w / 2, baseY, x - w * 0.36, top + h * 0.15, x - w * 0.15, top, x + w * 0.2, top + h * 0.05,
+    x + w * 0.4, top + h * 0.2, x + w / 2, baseY]).fill(color);
+  ctx.g.poly([x + w * 0.05, top + h * 0.03, x + w * 0.2, top + h * 0.05, x + w * 0.4, top + h * 0.2, x + w / 2, baseY,
+    x + w * 0.12, baseY]).fill(shade);
+};
+
+/** A carved pole of painted bands, topped with a face block and two wings. */
+const totem = (
+  ctx: DrawContext, x: number, baseY: number, h: number, wood: number, paint: number, accent: number,
+): void => {
+  const w = h * 0.12;
+  const top = baseY - h;
+  ctx.g.rect(x - w / 2, top, w, h).fill(wood);
+  ctx.g.rect(x + w * 0.15, top, w * 0.35, h).fill({ color: 0x000000, alpha: 0.22 });
+  for (let i = 0; i < 3; i++) {
+    ctx.g.rect(x - w / 2 - 2, baseY - h * (0.3 + i * 0.18), w + 4, 4).fill(accent);
+  }
+  leaf(ctx, x - w * 0.8, top + w * 0.2, w * 1.3, -2.7, accent);
+  leaf(ctx, x + w * 0.8, top + w * 0.2, w * 1.3, -0.45, accent);
+  ctx.g.rect(x - w * 0.9, top - w * 0.2, w * 1.8, w * 1.3).fill(paint);
+  ctx.g.rect(x - w * 0.55, top + w * 0.15, w * 0.35, w * 0.22).rect(x + w * 0.2, top + w * 0.15, w * 0.35, w * 0.22)
+    .fill(0x1a1008);
+  ctx.g.rect(x - w * 0.6, top + w * 0.65, w * 1.2, w * 0.22).fill(0xf2e8dc);
+};
+
+/** A spear from `(x1, y1)` to a hooked blade at `(x2, y2)`. */
+const spear = (ctx: DrawContext, x1: number, y1: number, x2: number, y2: number): void => {
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  ctx.g.moveTo(x1, y1).lineTo(x2, y2).stroke({ width: 5, color: 0x5a3a26 });
+  leaf(ctx, x2, y2, 64, angle, 0xc8ccd4);
+  const pt = rotator(x2, y2, angle);
+  const [hx, hy] = pt(22, 0);
+  leaf(ctx, hx, hy, 26, angle + 2.5, 0x9aa0aa);
+  for (let i = 0; i < 3; i++) {
+    const [bx, by] = pt(-6 - i * 6, 0);
+    ctx.g.circle(bx, by, 4).fill(0x2a1a10);
+  }
+};
+
+/** A painted diamond shield: gold rim, `base` colour, a pale centre stripe, and optionally green eyes. */
+const shield = (
+  ctx: DrawContext, x: number, y: number, w: number, h: number, base: number, stripe: number, eyes = false,
+): void => {
+  const diamond = (s: number, sw = s) => [x, y - h * s, x + w * sw, y, x, y + h * s, x - w * sw, y];
+  ctx.g.poly(diamond(1)).fill(0xd8a850);
+  ctx.g.poly(diamond(0.86)).fill(base);
+  ctx.g.poly(diamond(0.86, 0.22)).fill(stripe);
+  if (eyes) {
+    ctx.g.poly([x - w * 0.5, y - h * 0.2, x - w * 0.22, y - h * 0.12, x - w * 0.44, y - h * 0.07])
+      .poly([x + w * 0.5, y - h * 0.2, x + w * 0.22, y - h * 0.12, x + w * 0.44, y - h * 0.07]).fill(0x30c890);
+  }
+};
+
+/** A small glowing vial hanging on a string. */
+const bottle = (ctx: DrawContext, x: number, y: number, color: number): void => {
+  ctx.g.moveTo(x, y - 40).lineTo(x, y).stroke({ width: 1.5, color: 0x8a7a68 });
+  glow(ctx, x, y + 12, 44, color, 0.5);
+  ctx.g.rect(x - 7, y + 4, 14, 18).fill(color);
+  ctx.g.rect(x - 3, y, 6, 5).fill(0xd8d0c0);
+  ctx.g.rect(x - 5, y + 6, 3, 12).fill({ color: 0xffffff, alpha: 0.4 });
+};
+
+/** A stitched burlap doll hanging on a string, with a pin through its head. */
+const doll = (ctx: DrawContext, x: number, y: number, size: number): void => {
+  const burlap = 0x7a5a3a;
+  ctx.g.moveTo(x, y - size * 1.4).lineTo(x, y).stroke({ width: 1.5, color: 0x8a7a68 });
+  ctx.g.circle(x, y, size * 0.35).fill(burlap);
+  ctx.g.rect(x - size * 0.22, y + size * 0.3, size * 0.44, size * 0.6)
+    .rect(x - size * 0.7, y + size * 0.4, size * 1.4, size * 0.14)
+    .rect(x - size * 0.22, y + size * 0.85, size * 0.14, size * 0.4)
+    .rect(x + size * 0.08, y + size * 0.85, size * 0.14, size * 0.4).fill(burlap);
+  ctx.g.moveTo(x - size * 0.2, y - size * 0.1).lineTo(x - size * 0.06, y + size * 0.04)
+    .moveTo(x - size * 0.06, y - size * 0.1).lineTo(x - size * 0.2, y + size * 0.04)
+    .moveTo(x + size * 0.06, y - size * 0.1).lineTo(x + size * 0.2, y + size * 0.04)
+    .moveTo(x + size * 0.2, y - size * 0.1).lineTo(x + size * 0.06, y + size * 0.04)
+    .stroke({ width: 1.5, color: 0x1a0a06 });
+  ctx.g.moveTo(x, y).lineTo(x + size * 0.5, y - size * 0.6).stroke({ width: 1.5, color: 0xc8ccd4 });
+  ctx.g.circle(x + size * 0.5, y - size * 0.6, 3).fill(0xa040c0);
+};
+
+/** A hanging charm: a rope web behind crossed spears, painted shields and vials. `flip` mirrors it. */
+const charm = (ctx: DrawContext, x: number, y: number, size: number, flip: 1 | -1): void => {
+  const spokes = 8;
+  const at = (k: number, r: number) => {
+    const a = (k * Math.PI * 2) / spokes + 0.2;
+    return [x + Math.cos(a) * r, y + Math.sin(a) * r];
+  };
+  for (let k = 0; k < spokes; k++) {
+    const [sx, sy] = at(k, size);
+    ctx.g.moveTo(x, y).lineTo(sx, sy);
+  }
+  [0.45, 0.8].forEach((r) => {
+    const [fx, fy] = at(0, size * r);
+    ctx.g.moveTo(fx, fy);
+    for (let k = 1; k <= spokes; k++) {
+      const [px, py] = at(k, size * r);
+      ctx.g.lineTo(px, py);
+    }
+  });
+  ctx.g.stroke({ width: 1.5, color: 0x6a5a48, alpha: 0.7 });
+  spear(ctx, x - size * 0.9, y + size * 0.9, x + size * 0.95, y - size * 0.85);
+  spear(ctx, x + size * 0.9, y + size * 0.9, x - size * 0.95, y - size * 0.85);
+  tusk(ctx, x - size * 0.55, y + size * 0.55, size * 0.5, 1, 0xe8dccc);
+  tusk(ctx, x + size * 0.55, y + size * 0.55, size * 0.5, -1, 0xe8dccc);
+  shield(ctx, x + flip * size * 0.55, y - size * 0.45, size * 0.2, size * 0.32, 0x8a4aa8, 0xf2e8dc);
+  shield(ctx, x - flip * size * 0.5, y - size * 0.25, size * 0.18, size * 0.28, 0xc8302a, 0xf2e8dc);
+  shield(ctx, x, y + size * 0.05, size * 0.3, size * 0.52, 0xc8302a, 0xf2e8dc, true);
+  bottle(ctx, x - flip * size * 0.85, y - size * 0.2, 0x3a5ad8);
+  bottle(ctx, x + flip * size * 0.85, y - size * 0.1, 0xa060e0);
+  bottle(ctx, x - flip * size * 0.3, y + size * 0.85, 0x40c060);
 };
 
 const jungleForest = (ctx: DrawContext): void => {
@@ -546,96 +591,168 @@ const redVolcano = (ctx: DrawContext): void => {
 
 const duneProwl = (ctx: DrawContext): void => {
   const random = createRandom(97);
-  const sun = { x: W * 0.86, y: H * 0.16 };
-  const horizon = H * 0.58;
-  sky(ctx, [[0, 0xb8622a], [0.28, 0xe89a44], [0.5, 0xf8d88a], [0.58, 0xfbe6a8], [1, 0x6a2e18]]);
-  glow(ctx, sun.x, sun.y, 360, 0xfff4c8, 0.8);
-  ctx.g.circle(sun.x, sun.y, 34).fill(0xfffbe6);
-  mesa(ctx, W * 0.52, horizon + 10, 260, 90, 0xa4502e, 0x7a3620);
-  mesa(ctx, W * 0.92, horizon + 10, 180, 60, 0xb05c34, 0x8a4026);
-  band(ctx, horizon, 60, 0xfbe0a0, 0.5);
-  const far = ridge(random, horizon + 30, 40, 0);
-  dune(ctx, far, 0xf2c478, 0xd89a52, 6);
-  ziggurat(ctx, W * 0.16, ridgeAt(far, W * 0.16) + 16, 200, 5, 20, 0x9a5430, 0xd08a4a, 0x5e2e18);
-  // Broken columns beside the temple.
-  [W * 0.27, W * 0.3, W * 0.33].forEach((x) => {
-    const h = 20 + random() * 40;
-    const base = ridgeAt(far, x) + 8;
-    ctx.g.rect(x - 5, base - h, 10, h).rect(x - 7, base - h - 4, 14, 4).fill(0x8a4a2a);
+  const sun = { x: W * 0.62, y: H * 0.52 };
+  sky(ctx, [[0, 0x8a5a50], [0.3, 0xb87e6a], [0.5, 0xe0a888], [0.62, 0xf4c8a0], [0.7, 0xe0b088], [1, 0xc08a60]]);
+  glow(ctx, sun.x, sun.y, 560, 0xffe0b0, 0.7);
+  glow(ctx, sun.x, sun.y, 170, 0xfff8e0, 0.9);
+  rays(ctx, sun.x, sun.y, -2.8, -0.4, 10, 900, 0xfff0d0, 0.05);
+  // Jagged ranges right of the sun: overlapping peaks with uneven slopes, fading into the haze.
+  const range = (baseY: number, amp: number, color: number) => {
+    const peaks = Array.from({ length: 9 }, () => ({
+      x: W * (0.42 + random() * 0.66),
+      h: amp * (0.3 + random() * 0.7),
+      slope: 0.5 + random() * 0.9,
+    }));
+    const points: number[] = [];
+    for (let x = LEFT; x <= RIGHT; x += 4) {
+      const height = Math.max(0, ...peaks.map((p) => p.h - Math.abs(x - p.x) * p.slope));
+      points.push(x, baseY - height - random() * 3);
+    }
+    fillBelow(ctx, points, color);
+  };
+  fillBelow(ctx, ridge(random, H * 0.63, 40, 0.3, 4), 0xeec0a0);
+  range(H * 0.63, 150, 0xe8b498);
+  band(ctx, H * 0.6, 100, 0xf8d0b0, 0.5);
+  range(H * 0.68, 210, 0xb88070);
+  band(ctx, H * 0.67, 70, 0xf4c8a0, 0.45);
+  // A long dune rising to the left, with weathered stone spires along it.
+  const slopeBase = ridge(random, H * 0.68, 16, 0);
+  const slope = slopeBase.map((v, i) => (i % 2 === 0 ? v
+    : v - 130 * clamp01((W * 0.5 - slopeBase[i - 1]) / (W * 0.55)) ** 1.4));
+  dune(ctx, slope, 0xecc496, 0xdcac7e, 4);
+  ([[0.14, 110, 1], [0.2, 84, -1], [0.25, 64, 1], [0.3, 40, -1]] as const).forEach(([fx, h, dir]) => {
+    tusk(ctx, W * fx, ridgeAt(slope, W * fx) + 6, h, dir, 0xb08470);
   });
-  band(ctx, H * 0.68, 70, 0xffe0a0, 0.3);
-  dune(ctx, ridge(random, H * 0.78, 70, 0), 0xe0a058, 0xb86a36, 10);
-  dune(ctx, ridge(random, H * 0.95, 60, 0), 0xb4683a, 0x7a3a1e, 12);
-  motes(ctx, random, 90, H * 0.4, BOTTOM, [0xffe8b0, 0xf0c080], 1.4);
-  vignette(ctx, 0.45);
+  band(ctx, H * 0.7, 60, 0xf8d8b0, 0.4);
+  dune(ctx, ridge(random, H * 0.8, 26, 0), 0xe6b886, 0xd49e6e, 6);
+  // Ripples, and the sun's glare trailing toward the viewer.
+  for (let i = 0; i < 70; i++) {
+    ctx.g.ellipse(LEFT + random() * (RIGHT - LEFT), H * (0.78 + random() * 0.22), 20 + random() * 60, 1.2)
+      .fill({ color: 0xa8704a, alpha: 0.18 });
+  }
+  for (let i = 0; i < 90; i++) {
+    const y = H * (0.74 + random() * 0.26);
+    const spread = 60 + (y - H * 0.74) * 1.6;
+    ctx.g.ellipse(sun.x + (random() - 0.5) * spread, y, 10 + random() * 40, 1.2)
+      .fill({ color: 0xfff4dc, alpha: 0.15 + random() * 0.3 });
+  }
+  motes(ctx, random, 50, H * 0.3, BOTTOM, [0xfff0d8], 1.2);
+  vignette(ctx, 0.35);
 };
 
 const plainMulgore = (ctx: DrawContext): void => {
   const random = createRandom(101);
-  const horizon = H * 0.56;
-  sky(ctx, [[0, 0x2f7cc4], [0.35, 0x7fbbe8], [0.55, 0xd6ecfa], [0.57, 0xbcd8a0], [1, 0x2c5418]]);
-  glow(ctx, W * 0.9, H * 0.08, 320, 0xffffff, 0.6);
-  for (let i = 0; i < 9; i++) {
-    cloud(ctx, random, LEFT + random() * (RIGHT - LEFT), H * (0.06 + random() * 0.32), 60 + random() * 70);
-  }
-  mesa(ctx, W * 0.1, horizon + 6, 300, 70, 0xc4a47a, 0xa48458);
-  mesa(ctx, W * 0.78, horizon + 6, 220, 110, 0xb8966a, 0x987650);
-  mesa(ctx, W * 0.92, horizon + 6, 160, 50, 0xc8aa80, 0xa88a5e);
-  band(ctx, horizon + 4, 50, 0xd6ecfa, 0.5);
-  fillBelow(ctx, ridge(random, H * 0.62, 40, 0), 0x9cc864);
-  const mid = ridge(random, H * 0.74, 60, 0);
-  fillBelow(ctx, mid, 0x76b044);
+  const horizon = H * 0.6;
+  sky(ctx, [[0, 0x2a64a8], [0.25, 0x5a90c8], [0.45, 0xa8c4d8], [0.58, 0xdce4e4], [1, 0x7a9a6a]]);
+  // Bright billowing cloud on the left, a grey storm mass on the right.
+  const white = softFill(ctx, 0xffffff);
+  const grey = softFill(ctx, 0x7a8698);
   for (let i = 0; i < 14; i++) {
-    const x = LEFT + random() * (RIGHT - LEFT);
-    roundTree(ctx, random, x, ridgeAt(mid, x) + 4, 30 + random() * 30, 0x5a4028, 0x3e7a26);
+    puff(ctx, grey, W * (0.68 + random() * 0.4), H * random() * 0.5, 160 + random() * 160, 90 + random() * 80, 0.55);
   }
-  [W * 0.08, W * 0.14, W * 0.2].forEach((x) => tent(ctx, x, ridgeAt(mid, x) + 6, 60 + random() * 24, 0xe0c494,
-    0x9a4a2a));
-  band(ctx, H * 0.8, 60, 0xe6f4ff, 0.25);
-  const near = ridge(random, H * 0.9, 50, 0);
-  fillBelow(ctx, near, 0x4c8a2a);
-  for (let i = 0; i < 260; i++) {
+  for (let i = 0; i < 26; i++) {
+    puff(ctx, white, W * (0.08 + random() * 0.7), H * (0.04 + random() * 0.42), 90 + random() * 140,
+      40 + random() * 70, 0.6);
+  }
+  glow(ctx, W * 0.55, H * 0.18, 300, 0xfff8e0, 0.6);
+  rays(ctx, W * 0.55, H * 0.18, 1.5, 2.3, 6, 700, 0xfff8e0, 0.06);
+  fillBelow(ctx, ridge(random, horizon, 70, 0.5), 0xaab8c6);
+  // A tall plateau in the haze, with buildings on top and thinner spires roped to it.
+  const mesaX = W * 0.66;
+  const mesaTop = H * 0.28;
+  [[W * 0.55, H * 0.42, 50], [W * 0.79, H * 0.36, 60]].forEach(([x, top, w]) => {
+    spire(ctx, x, horizon + 20, w, horizon + 20 - top, 0xc0c6d0, 0xaab2c0);
+    ctx.g.moveTo(mesaX, mesaTop + 10).lineTo(x, top + 6).stroke({ width: 1, color: 0x8a92a0 });
+  });
+  ctx.g.poly([mesaX - 100, horizon + 20, mesaX - 80, mesaTop, mesaX + 80, mesaTop, mesaX + 100, horizon + 20])
+    .fill(0xb4bcc8);
+  ctx.g.poly([mesaX + 20, mesaTop, mesaX + 80, mesaTop, mesaX + 100, horizon + 20, mesaX + 30, horizon + 20])
+    .fill(0x9ea6b4);
+  ctx.g.rect(mesaX - 60, mesaTop - 18, 34, 18).rect(mesaX + 20, mesaTop - 14, 40, 14)
+    .rect(mesaX - 8, mesaTop - 60, 14, 60).fill(0x98a0ae);
+  ctx.g.poly([mesaX - 64, mesaTop - 18, mesaX - 43, mesaTop - 36, mesaX - 22, mesaTop - 18]).fill(0x98a0ae);
+  band(ctx, horizon, 140, 0xe4ecf2, 0.55);
+  // The valley floor, with a lake catching the sky.
+  fillBelow(ctx, ridge(random, horizon + 18, 12, 0), 0x96b676);
+  ctx.g.ellipse(W * 0.62, H * 0.7, 110, 9).fill(0xbcd4e4);
+  // Sandstone cliffs on the left, streaked, with grass and pines along the rim.
+  const rim: number[] = [];
+  for (let x = LEFT; x <= W * 0.22; x += 6) {
+    rim.push(x, H * 0.1 + ((x - LEFT) / (W * 0.22 - LEFT)) ** 2 * H * 0.26 + random() * 4);
+  }
+  ctx.g.poly([...rim, W * 0.27, H * 0.66, LEFT, H * 0.72]).fill(0xb07a5a);
+  for (let i = 0; i < 40; i++) {
+    const x = LEFT + random() * (W * 0.22 - LEFT);
+    const top = ridgeAt(rim, x) + 4;
+    ctx.g.rect(x, top, 2 + random() * 6, H * 0.66 - top).fill({ color: random() > 0.5 ? 0xd8a27a : 0x7a4a36,
+      alpha: 0.3 });
+  }
+  // Ledges, some holding grass.
+  for (let i = 0; i < 12; i++) {
+    const x = LEFT + random() * (W * 0.2 - LEFT);
+    const y = ridgeAt(rim, x) + 20 + random() * (H * 0.6 - ridgeAt(rim, x));
+    ctx.g.rect(x, y, 30 + random() * 50, 4).fill({ color: 0x6a3a2a, alpha: 0.5 });
+    ctx.g.rect(x, y - 4, 20 + random() * 30, 4).fill({ color: 0x6a9a3a, alpha: random() > 0.5 ? 0.8 : 0 });
+  }
+  const grassLine: number[] = [];
+  for (let i = rim.length - 2; i >= 0; i -= 2) {
+    grassLine.push(rim[i], rim[i + 1] + 10);
+  }
+  ctx.g.poly([...rim, ...grassLine]).fill(0x6a9a3a);
+  for (let i = 0; i < rim.length; i += 8) {
+    pine(ctx, rim[i], rim[i + 1] + 4, 20 + random() * 24, 0x2a4a26);
+  }
+  spire(ctx, W * 0.27, H * 0.68, 64, 130, 0xa87256, 0x7e5240);
+  spire(ctx, W * 0.34, H * 0.68, 50, 90, 0xa87256, 0x7e5240);
+  // A green hill rising on the right.
+  ctx.g.poly([W * 0.76, H * 0.72, W * 0.9, H * 0.52, RIGHT, H * 0.44, RIGHT, BOTTOM, W * 0.76, BOTTOM]).fill(0x5a8a3a);
+  ctx.g.poly([W * 0.92, H * 0.5, RIGHT, H * 0.43, RIGHT, H * 0.56, W * 0.95, H * 0.58]).fill(0x8a6a58);
+  const mid = ridge(random, H * 0.76, 30, 0);
+  fillBelow(ctx, mid, 0x6a9e3c);
+  const sunlit = softFill(ctx, 0xe4ec7a);
+  for (let i = 0; i < 5; i++) {
+    puff(ctx, sunlit, W * (0.15 + random() * 0.5), H * (0.8 + random() * 0.08), 160 + random() * 80, 30, 0.55);
+  }
+  ctx.g.moveTo(LEFT, H * 0.96).quadraticCurveTo(W * 0.25, H * 0.84, W * 0.5, H * 0.82)
+    .stroke({ width: 26, color: 0xd0a878, alpha: 0.85 });
+  ctx.g.moveTo(W * 0.5, H * 0.82).quadraticCurveTo(W * 0.58, H * 0.8, W * 0.66, H * 0.75)
+    .stroke({ width: 12, color: 0xd0a878, alpha: 0.7 });
+  tent(ctx, W * 0.43, ridgeAt(mid, W * 0.43) + 4, 50, 0xe8dcc0, 0x8a5a3a);
+  totem(ctx, W * 0.28, H * 0.9, 190, 0x6a4a2e, 0xc8402a, 0x3a9a8a);
+  // Dark grass and a weathered post in the foreground.
+  const near = ridge(random, H * 0.97, 30, 0);
+  fillBelow(ctx, near, 0x2e4220);
+  for (let i = 0; i < 200; i++) {
     const x = LEFT + random() * (RIGHT - LEFT);
-    const ground = ridgeAt(near, x);
-    const base = ground + random() * (BOTTOM - ground);
-    const h = 8 + random() * 22;
+    const base = ridgeAt(near, x) + random() * 30;
+    const h = 10 + random() * 26;
     ctx.g.poly([x - 2, base, x + (random() - 0.5) * h * 0.6, base - h, x + 2, base])
-      .fill(random() > 0.5 ? 0x6aa83a : 0x3a7020);
+      .fill(random() > 0.5 ? 0x3a5a26 : 0x22341a);
   }
-  motes(ctx, random, 40, H * 0.5, BOTTOM, [0xffffff, 0xf4f0b0], 1.2);
+  ctx.g.poly([W * 0.74, H * 0.8, RIGHT, H * 0.74, RIGHT, H * 0.77, W * 0.74, H * 0.83]).fill(0x4a3426);
+  ctx.g.rect(W * 0.88, H * 0.72, 34, BOTTOM - H * 0.72).fill(0x3a2a1e);
+  ctx.g.rect(W * 0.88, H * 0.76, 34, 8).fill(0x8a2a1e);
   vignette(ctx, 0.3);
 };
 
 const theVoodoo = (ctx: DrawContext): void => {
   const random = createRandom(113);
-  const moon = { x: W * 0.14, y: H * 0.15 };
-  const bone = 0xf4ece0;
-  sky(ctx, [[0, 0x14040a], [0.35, 0x520c16], [0.6, 0xa8201a], [0.72, 0x5a0e12], [1, 0x0e0306]]);
-  stars(ctx, random, 90, H * 0.35);
-  glow(ctx, moon.x, moon.y, 280, 0xffe8dc, 0.5);
-  ctx.g.circle(moon.x, moon.y, 44).fill(0xfff4ea);
-  band(ctx, H * 0.4, 80, 0xff6a4a, 0.25);
-  const far = ridge(random, H * 0.64, 60, 0.2);
-  fillBelow(ctx, far, 0x34070e);
-  for (let x = LEFT; x < RIGHT; x += 50 + random() * 90) {
-    palm(ctx, random, x, ridgeAt(far, x) + 6, 80 + random() * 70, 0x34070e);
+  sky(ctx, [[0, 0x050306], [0.5, 0x140810], [0.8, 0x24080c], [1, 0x0a0305]]);
+  glow(ctx, W * 0.5, H * 1.05, 460, 0xb8201a, 0.4);
+  const far = ridge(random, H * 0.84, 40, 0.2);
+  fillBelow(ctx, far, 0x14060a);
+  for (let x = LEFT; x < RIGHT; x += 80 + random() * 120) {
+    palm(ctx, random, x, ridgeAt(far, x) + 6, 90 + random() * 70, 0x14060a);
   }
-  band(ctx, H * 0.68, 80, 0xffd0b0, 0.2);
-  const ground = ridge(random, H * 0.86, 24, 0);
-  fillBelow(ctx, ground, 0x1c0408);
-  hut(ctx, W * 0.72, ridgeAt(ground, W * 0.72) + 4, 90, 0x1c0408, 0xffc040);
-  hut(ctx, W * 0.97, ridgeAt(ground, W * 0.97) + 4, 120, 0x1c0408, 0xffc040);
-  // Tusk arches over the two fires.
-  tusk(ctx, W * 0.78, BOTTOM, 230, 1, bone);
-  tusk(ctx, W * 0.95, BOTTOM, 230, -1, bone);
-  tusk(ctx, W * 0.02, BOTTOM, 190, 1, bone);
-  tusk(ctx, W * 0.18, BOTTOM, 190, -1, bone);
-  bonfire(ctx, random, W * 0.86, H * 0.95, 120);
-  bonfire(ctx, random, W * 0.1, H * 0.97, 90);
-  mask(ctx, W * 0.04, H * 0.5, 110, 0xd8201a);
-  mask(ctx, W * 0.26, H * 0.66, 80, 0xd8201a);
-  motes(ctx, random, 140, H * 0.3, BOTTOM, [0xffd040, 0xffffff, 0xff5a2a], 2);
-  vignette(ctx, 0.55);
+  glow(ctx, W * 0.12, H * 0.4, 300, 0x8a1a1a, 0.45);
+  glow(ctx, W * 0.88, H * 0.44, 280, 0x8a1a1a, 0.45);
+  charm(ctx, W * 0.12, H * 0.4, 200, 1);
+  charm(ctx, W * 0.88, H * 0.44, 180, -1);
+  tusk(ctx, W * 0.02, BOTTOM, 170, 1, 0xe8dccc);
+  tusk(ctx, W * 0.98, BOTTOM, 170, -1, 0xe8dccc);
+  doll(ctx, W * 0.74, H * 0.8, 30);
+  motes(ctx, random, 80, H * 0.3, BOTTOM, [0xffd040, 0xffffff, 0xff5a2a], 1.6);
+  vignette(ctx, 0.5);
 };
 
 export const BACKGROUND_VARIANTS = {
