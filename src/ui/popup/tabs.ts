@@ -2,9 +2,9 @@ import { Container, Graphics, Rectangle } from "pixi.js";
 import type { ProfessionKey } from "../../data";
 import { PROFESSION_KEYS, TAB_GROUPS } from "../../data/keys";
 import { PROFESSION_ICONS, professionByKey } from "../../data/model";
-import { type ArtKit, PALETTE, TAB_GLOW, createNineSlice } from "../art";
+import { type ArtKit, PALETTE, TAB_GLOW, TAB_SIZE, createNineSlice } from "../art";
 import { at, clearChildren, itemSlot, tappable } from "../widgets";
-import { MIN_TIER_GAP, type Strip, TAB_SIZE, TAB_STEP, TAB_TUCK, TIER_GAP } from "./geometry";
+import { MIN_TIER_GAP, type Strip, TAB_STEP, TAB_TUCK, TIER_GAP } from "./geometry";
 
 const TABS_TOP = 52;
 const TAB_ICON = 36;

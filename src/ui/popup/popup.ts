@@ -11,8 +11,8 @@ import { FIELD_TEXT_SIZE, FIELD_TEXT_SIZE_MOBILE } from "../dom";
 import { keyboardShift } from "../layout";
 import { SLIDE_MS, tweenAt } from "../motion";
 import { at, button, checkbox, clearChildren, iconSprite, label, piece, roundIcon } from "../widgets";
-import { NOTE_EDIT_MIN_HEIGHT, createDetailPane, noteEditMaxHeight, selectionKey } from "./detail";
-import { desktopGeometry, mobileGeometry, searchInset } from "./geometry";
+import { type DetailPane, NOTE_EDIT_MIN_HEIGHT, createDetailPane, noteEditMaxHeight, selectionKey } from "./detail";
+import { type Geometry, desktopGeometry, mobileGeometry, searchInset } from "./geometry";
 import type { NotesField } from "./notesField";
 import { buildRows } from "./rows";
 import { createScrollList } from "./scrollList";
@@ -34,6 +34,19 @@ const searchQuery = (state: AppState): string => (state.search ?? "").trim();
 /** Whether `field` is the only one that differs between the two states. */
 const onlyChanged = (state: AppState, previous: AppState, field: keyof AppState): boolean =>
   (Object.keys(state) as (keyof AppState)[]).every((key) => key === field || state[key] === previous[key]);
+
+/** Typing in the search field: only its text changed. */
+const searchTyped = (state: AppState, previous: AppState): boolean =>
+  state.search !== null && previous.search !== null && onlyChanged(state, previous, "search");
+
+/** Typing a note: only the draft of the same entry changed. */
+const draftTyped = (state: AppState, previous: AppState): boolean =>
+  state.editing !== null && previous.editing !== null && state.editing.key === previous.editing.key
+  && onlyChanged(state, previous, "editing");
+
+/** The edit in progress when it is of the shown entry, else null. */
+const shownEdit = (state: AppState): AppState["editing"] =>
+  state.editing && state.editing.key === selectionKey(state.selection) ? state.editing : null;
 
 /** Desktop: the fixed-size window, scaled by main.ts. Mobile: a frame of the given size, at scale 1. */
 export type PopupLayout = { mode: "desktop" } | { mode: "mobile"; width: number; height: number };
@@ -133,6 +146,55 @@ const watchKeyboardBand = (fields: HTMLElement[]) => {
 };
 
 /**
+ * Keeps the DOM fields on their canvas slots, moved every frame (cheap when nothing moved) so they follow the popup's
+ * scale, the pane's scrolling and the window size: the notes textarea over the detail pane's note block while a note
+ * is edited, and the search input in the list's first row slot, hidden while the mobile detail pane covers the list.
+ * With `keyboard` (mobile), the whole frame moves up through its pivot just enough to keep the edited note above the
+ * on-screen keyboard.
+ */
+const trackFields = ({ win, detail, g, notesField, searchField, keyboard, isEditing, paneOpen, listShown }: {
+  win: Container;
+  detail: DetailPane;
+  g: Geometry;
+  notesField: NotesField;
+  searchField: SearchField;
+  keyboard: ReturnType<typeof watchKeyboardBand> | null;
+  isEditing: () => boolean;
+  paneOpen: () => boolean;
+  listShown: () => boolean;
+}) => {
+  const shiftFrame = (shift: number) => {
+    if (win.pivot.y !== shift) {
+      win.pivot.y = shift;
+    }
+  };
+  detail.view.onRender = () => {
+    const box = isEditing() ? detail.noteBox() : null;
+    if (!box) {
+      shiftFrame(0);
+      return;
+    }
+    const { x, y, width, height } = box;
+    if (keyboard) {
+      // Mobile runs at scale 1, so the field's unshifted top is plain arithmetic.
+      const top = win.y + g.detail.y + y;
+      const { top: visibleTop, bottom: visibleBottom } = keyboard.band();
+      shiftFrame(document.activeElement === notesField.element && paneOpen()
+        ? keyboardShift(top, top + height, visibleTop, visibleBottom, KEYBOARD_MARGIN) : 0);
+    }
+    const { a, tx, ty } = detail.view.worldTransform;
+    // The pane's content is masked but the DOM field is not: clip it to the pane when it scrolls past an edge.
+    const clip = { top: Math.max(0, PANE_INSET - y), bottom: Math.max(0, y + height - (g.detail.h - PANE_INSET)) };
+    notesField.place(tx + x * a, ty + y * a, width, height, a, clip);
+  };
+  win.onRender = () => {
+    searchField.setVisible(listShown());
+    const { a, tx, ty } = win.worldTransform;
+    searchField.place(tx + g.search.x * a, ty + g.search.y * a, g.search.w, g.search.h, a);
+  };
+};
+
+/**
  * The profession window: frame, portrait, title, a summary bar, the five profession tabs (the two primary ones set
  * apart), and the list and detail panes. It renders from the store and writes user actions back to it.
  *
@@ -180,9 +242,9 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     },
     onToggle: (id) => {
       // Matches show in collapsed sections too while searching, so a toggle would change what nobody can see.
-      const { collapsed } = store.get();
-      if (searchQuery(store.get()) === "") {
-        store.set({ collapsed: toggled(collapsed, id, !collapsed.has(id)) });
+      const state = store.get();
+      if (searchQuery(state) === "") {
+        store.set({ collapsed: toggled(state.collapsed, id, !state.collapsed.has(id)) });
       }
     },
   }, ticker, g.rows);
@@ -266,65 +328,29 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     notesField.setVisible(x === 0);
   });
 
-  // Mobile on-screen keyboard: while the notes field has focus and the keyboard covers it, the whole frame moves up
-  // (through its pivot) just enough.
   const keyboard = mobile ? watchKeyboardBand([notesField.element, searchField.element]) : null;
-  const shiftFrame = (shift: number) => {
-    if (win.pivot.y !== shift) {
-      win.pivot.y = shift;
-    }
-  };
-
   const textSize = mobile ? FIELD_TEXT_SIZE_MOBILE : FIELD_TEXT_SIZE;
   notesField.setTextSize(textSize);
   notesField.setVisible(true);
   searchField.setTextSize(textSize);
+  trackFields({ win, detail, g, notesField, searchField, keyboard, isEditing: () => store.get().editing !== null,
+    paneOpen: () => slide.x() === 0, listShown: () => slide.x() === away });
   let editHeight = NOTE_EDIT_MIN_HEIGHT;
   const maxEditHeight = noteEditMaxHeight(g.detail.h);
-
-  // While a note is edited, it lives in a DOM textarea over the note block of the detail pane. It is moved to the
-  // block's screen rectangle every frame (cheap when nothing moved), so it follows the popup's scale, the pane's
-  // scrolling and the window size.
-  detail.view.onRender = () => {
-    const box = store.get().editing ? detail.noteBox() : null;
-    if (!box) {
-      shiftFrame(0);
-      return;
-    }
-    const { x, y, width, height } = box;
-    if (keyboard) {
-      // Mobile runs at scale 1, so the field's unshifted top is plain arithmetic.
-      const top = win.y + g.detail.y + y;
-      const { top: visibleTop, bottom: visibleBottom } = keyboard.band();
-      shiftFrame(document.activeElement === notesField.element && slide.x() === 0
-        ? keyboardShift(top, top + height, visibleTop, visibleBottom, KEYBOARD_MARGIN) : 0);
-    }
-    const { a, tx, ty } = detail.view.worldTransform;
-    // The pane's content is masked but the DOM field is not: clip it to the pane when it scrolls past an edge.
-    const clip = { top: Math.max(0, PANE_INSET - y), bottom: Math.max(0, y + height - (g.detail.h - PANE_INSET)) };
-    notesField.place(tx + x * a, ty + y * a, width, height, a, clip);
-  };
-
-  // The search input sits in the list's first row slot, moved there every frame like the notes field. It hides
-  // while the mobile detail pane covers the list.
-  win.onRender = () => {
-    searchField.setVisible(slide.x() === away);
-    const { a, tx, ty } = win.worldTransform;
-    searchField.place(tx + g.search.x * a, ty + g.search.y * a, g.search.w, g.search.h, a);
-  };
 
   let renderedProfession: ProfessionKey | null = null;
   let renderedQuery = "";
 
   /** Rebuilds the detail pane from the store: the entry, its saved note, and the textarea's room while editing. */
   const showDetail = () => {
-    const { selection, known, notes, editing } = store.get();
+    const state = store.get();
+    const { selection, known, notes } = state;
     const key = selectionKey(selection);
-    const editingThis = editing !== null && editing.key === key;
+    const editing = shownEdit(state);
     // While editing, the checkbox shows the draft's known flag; otherwise the saved one.
-    const isKnown = editingThis && editing.known !== undefined ? editing.known
+    const isKnown = editing?.known !== undefined ? editing.known
       : selection?.kind === "recipe" && known.has(recipeKey(selection.recipe));
-    detail.show(selection, isKnown, key ? notes[key] ?? "" : "", editingThis ? editHeight : null);
+    detail.show(selection, isKnown, key ? notes[key] ?? "" : "", editing ? editHeight : null);
   };
 
   /** Sizes the textarea to its text, within the minimum and maximum. True when its height changed. */
@@ -379,7 +405,7 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
 
   /** Rebuilds the detail pane, with the notes field open over it while the shown entry is edited. */
   const renderDetail = (state: AppState) => {
-    const editing = state.editing && state.editing.key === selectionKey(state.selection) ? state.editing : null;
+    const editing = shownEdit(state);
     if (!editing) {
       editHeight = NOTE_EDIT_MIN_HEIGHT;
       notesField.close();
@@ -415,21 +441,15 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     }
   };
 
-  // Typing in the search field only changes its text: refilter the list, and leave the detail pane alone.
-  const searchTyped = (state: AppState, previous: AppState): boolean =>
-    state.search !== null && previous.search !== null && onlyChanged(state, previous, "search");
-  // Typing a note only changes the draft: grow the textarea if its text needs it, without rebuilding anything else.
-  const draftTyped = (state: AppState, previous: AppState): boolean =>
-    state.editing !== null && previous.editing !== null && state.editing.key === previous.editing.key
-    && onlyChanged(state, previous, "editing");
-
   const unsubscribe = store.subscribe((state, previous) => {
     const profession = professionByKey.get(state.active);
     if (profession && searchTyped(state, previous)) {
+      // Refilter the list, and leave the detail pane alone.
       renderList(profession, recipesByProfession.get(profession.key) ?? [], state);
     } else if (!draftTyped(state, previous)) {
       render(true);
     } else if (fitEditor()) {
+      // Grow the textarea if its text needs it, without rebuilding anything else.
       showDetail();
     }
   });

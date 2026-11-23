@@ -27,7 +27,8 @@ export const FRAME_TITLE_HEIGHT = 32;
 export const SHADOW_SPREAD = 18;
 /** Transparent margin around side tabs, where the active tab draws its glow. */
 export const TAB_GLOW = 4;
-const TAB_ART_SIZE = 48;
+/** A side tab's size, glow excluded. */
+export const TAB_SIZE = 48;
 
 /** A bevelled gold plate with a rivet, over each corner of the frame trim. */
 const cornerPlate = (ctx: DrawContext, x: number, y: number): void => {
@@ -176,8 +177,8 @@ const slotBorder: PieceSpec = {
 
 /** A side tab. Inactive primary-profession tabs get a bronze rim instead of the grey one; active tabs are gold. */
 const sideTab = (active: boolean, primary = false): PieceSpec => ({
-  width: TAB_ART_SIZE + TAB_GLOW * 2,
-  height: TAB_ART_SIZE + TAB_GLOW * 2,
+  width: TAB_SIZE + TAB_GLOW * 2,
+  height: TAB_SIZE + TAB_GLOW * 2,
   slice: even(TAB_GLOW + 12),
   draw: (ctx, w, h) => {
     const { g } = ctx;

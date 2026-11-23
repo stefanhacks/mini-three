@@ -1,11 +1,10 @@
 import { PROFESSION_KEYS, TAB_GROUPS } from "../../data/keys";
-import { TAB_GLOW } from "../art";
+import { TAB_GLOW, TAB_SIZE } from "../art";
 import { stripLayout } from "../layout";
 import { DESKTOP_ROWS, type RowMetrics, TOUCH_ROWS } from "./rows";
 
 export const WINDOW_WIDTH = 720;
 export const WINDOW_HEIGHT = 580;
-export const TAB_SIZE = 48;
 export const TAB_STEP = 54;
 /** How far the desktop side tabs tuck under the window frame. */
 export const TAB_TUCK = 4;
