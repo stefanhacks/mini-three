@@ -171,6 +171,7 @@ describe("recipeItemSources", () => {
       [22, mob({ ref: "npcRanks.RARE" }, new Map(), { name: "Forever Rare" })],
       [23, mob(1, new Map([[99, points(5)]]), { name: "Unnamed Zone" })],
       [24, mob(0, null, { name: "Nowhere" })],
+      [25, mob({ ref: "npcRanks.BOSS" }, new Map([[5, points(1)]]), { name: "Boss" })],
       ...[30, 31, 32, 33, 34, 35].map((id) => [id, mob(0, new Map([[1, points(1)]]), { name: `World ${id}` })]),
     ]);
     const dropSource = (npcDrops, chances) => recipeItemSources(new Map([["r", [200]]]), {
@@ -183,7 +184,9 @@ describe("recipeItemSources", () => {
       expect(drop([20, 21], [[20, 0.123], [21, 5]])).toEqual({ npc: "Common", zone: "Tanaris", chance: 0.12 });
     });
 
-    it("falls back to rares, then to mobs with no known chance, ties going to the most spawns", () => {
+    it("falls back to elites and bosses, then rares, then mobs with no known chance, ties to the most spawns", () => {
+      expect(drop([20, 21, 25], [[21, 5], [25, 1]])).toEqual({ npc: "Boss", zone: "Mulgore", chance: 1 });
+      expect(drop([20, 21, 23], [[21, 5], [23, 1]]).npc).toBe("Unnamed Zone");
       expect(drop([20, 21], [[21, 5]])).toEqual({ npc: "Rare", zone: "Durotar", chance: 5 });
       expect(drop([22, 24, 20], [])).toEqual({ npc: "Common", zone: "Tanaris" });
       expect(drop([24], [])).toEqual({ npc: "Nowhere" });

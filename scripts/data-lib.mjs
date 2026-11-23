@@ -445,10 +445,14 @@ export const RECIPE_SIDES = ["H", "A", "N"];
 export const QUEST_PLACE = "Quest";
 // More mobs than this sharing the best drop chance make it a world drop: no single mob is worth naming.
 export const WORLD_DROP_MOBS = 5;
-// QuestieDB NPC `rank` values of rare spawns (rare elite, rare), as numbers in the raw table and `npcRanks` refs in
-// the Forever corrections. Their drops count only when no common mob has one.
-const RARE_RANKS = new Set([2, 4, "npcRanks.RARE_ELITE", "npcRanks.RARE"]);
-const isRare = (npc) => RARE_RANKS.has(npc.rank?.ref ?? npc.rank);
+// QuestieDB NPC `rank` values, as numbers in the raw table and `npcRanks` refs in the Forever corrections, by how
+// much a drop from them is preferred: common mobs (tier 0, also any rank not listed), then elites and bosses, then
+// rares (rare elites included).
+const RANK_TIERS = new Map([
+  [1, 1], ["npcRanks.ELITE", 1], [3, 1], ["npcRanks.BOSS", 1],
+  [2, 2], ["npcRanks.RARE_ELITE", 2], [4, 2], ["npcRanks.RARE", 2],
+]);
+const rankTier = (npc) => RANK_TIERS.get(npc.rank?.ref ?? npc.rank) ?? 0;
 
 /**
  * Where each recipe's items are obtained, from QuestieDB: per side (H Horde, A Alliance, N neutral, by the NPC's
@@ -490,8 +494,8 @@ export const recipeItemSources = (itemsByRecipe, { items, npcs, quests, dropChan
   };
 
   /**
-   * The mob most likely to drop one of `found` ([id, item] pairs): the best chance among common mobs, else among
-   * rare ones, else (no chance known, e.g. Forever-only mobs) any listed mob. Ties go to the mob with most spawns,
+   * The mob most likely to drop one of `found` ([id, item] pairs): the best chance among the mobs of the most
+   * preferred rank tier that drops it (see RANK_TIERS), else (no chance known, e.g. Forever-only mobs) any listed mob. Ties go to the mob with most spawns,
    * then the lowest id. Returns { npc, zone?, chance? }, { world: true, chance? } when more than WORLD_DROP_MOBS mobs
    * share the best chance, {} when only objects or containers drop it, or undefined when nothing does. Chances are
    * percent, to two significant digits.
@@ -509,8 +513,8 @@ export const recipeItemSources = (itemsByRecipe, { items, npcs, quests, dropChan
     }
     const mobs = [...chanceByNpc].map(([id, chance]) => ({ id, npc: npcs.get(id), chance }));
     const dropping = mobs.filter((mob) => mob.chance > 0);
-    const common = dropping.filter((mob) => !isRare(mob.npc));
-    const pool = common.length > 0 ? common : dropping.length > 0 ? dropping : mobs;
+    const tier = Math.min(...dropping.map((mob) => rankTier(mob.npc)));
+    const pool = dropping.length > 0 ? dropping.filter((mob) => rankTier(mob.npc) === tier) : mobs;
     if (pool.length === 0) {
       return {};
     }
