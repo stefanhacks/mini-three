@@ -342,22 +342,28 @@ export const TRIGGER_LEARN = 6;
 // SpellEffect.Effect 36: the spell teaches EffectTriggerSpell (the older "Learning" spell some items use).
 export const SPELL_EFFECT_LEARN_SPELL = 36;
 
-// Spell ids that some item teaches. An item teaches a spell when one of its effects has trigger type 6 for it, or
-// casts a spell with a learn effect for it.
+// The items that teach each spell: Map<spell id, item id[]>. An item teaches a spell when one of its effects has
+// trigger type 6 for it, or casts a spell with a learn effect for it.
 // effects: Map of ItemEffect id to { spell, trigger }. links: [{ effect, item }] (ItemXItemEffect).
 // learns: Map of spell id to the spell ids its learn effects teach.
 export const spellsTaughtByItems = (effects, links, learns) => {
-  const taught = new Set();
-  for (const { effect } of links) {
+  const taught = new Map();
+  const add = (spell, item) => {
+    const items = taught.get(spell) ?? [];
+    if (!items.includes(item)) {
+      taught.set(spell, [...items, item]);
+    }
+  };
+  for (const { effect, item } of links) {
     const row = effects.get(effect);
     if (!row) {
       continue;
     }
     if (row.trigger === TRIGGER_LEARN) {
-      taught.add(row.spell);
+      add(row.spell, item);
     }
     for (const spell of learns.get(row.spell) ?? []) {
-      taught.add(spell);
+      add(spell, item);
     }
   }
   return taught;

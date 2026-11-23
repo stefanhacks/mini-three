@@ -44,6 +44,9 @@ export interface Recipe {
   minSkill: number;
   trivialLow: number;
   trivialHigh: number;
+  // The lowest skill a recipe item or a trainer asks before teaching it, 1 when it comes with the profession.
+  // Absent when unknown (quest rewards, Forever-only recipes no server database covers). Never above 300.
+  learn?: number;
   // "item" when a recipe item (pattern, plans, formula...) teaches it. "trainer" otherwise: a trainer teaches it or it
   // comes with the profession (the client tables don't list trainers, so this is what's left without an item).
   source: "item" | "trainer";
@@ -68,13 +71,13 @@ export const professions = professionsJson as unknown as Profession[];
 export const recipes = recipesJson as unknown as Recipe[];
 export const items = itemsJson as unknown as Record<string, Item>;
 
-// Where a Herbalism gatherable's nodes spawn in Forever. Derived from QuestieDB, see `source`.
+// Where a Herbalism gatherable's nodes spawn, or where a fish is caught, in Forever. Derived facts, see `source`.
 export interface Locations {
   // Credit line for the data source and what was kept from it.
   source: string;
   // Client build the zone names come from.
   build: string;
-  // Item id to English zone names, the zone with most spawns first. Items without nodes have no entry.
+  // Item id to English zone names, most likely first. Items without a known place have no entry.
   items: Record<string, string[]>;
 }
 

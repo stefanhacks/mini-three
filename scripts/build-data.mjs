@@ -1,16 +1,21 @@
 // Builds src/data/*.json from the WoW: Forever client DB2 tables (wago.tools, product wowf).
 // Run with `npm run data`. Downloads are cached in .cache/; the output JSON is committed.
+import { Buffer } from "node:buffer";
 import { createWriteStream } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { gunzipSync } from "node:zlib";
 import { resolveDescription } from "./descriptions.mjs";
 import {
   SPELL_EFFECT_LEARN_SPELL, classifyGatherables, locateItems, parseCsv, readQuestieObjects,
   spellsTaughtByItems, toInt, zoneNamesByCount,
 } from "./data-lib.mjs";
+import {
+  fishingAreas, orderFishZones, poolYields, readSqlTable, trainerSkillLevels,
+} from "./server-data.mjs";
 
 // Pinned inputs: change them on purpose, and the output changes with them.
 // Tables are fetched with useHotfixes=true. It is an undocumented wago.tools query parameter (found by trying it):
@@ -28,6 +33,16 @@ const QUESTIE_FILES = [
   "data/Forever/foreverObjectDB.lua",
   "src/corrections/Forever/generated/foreverBaseObject.lua",
 ];
+// Server-side facts come from the CMaNGOS Classic world database (https://github.com/cmangos/classic-db, GPLv3), at
+// this commit, read the same way as QuestieDB: the gzipped dump is cached in .cache/ and reduced at build time to
+// zone names per fish, the fish each pool yields and a skill level per recipe. Nothing else is kept. The repo's
+// Updates/*.sql are not applied: at this commit none of them changes fishing loot, pool loot or trainers (check again
+// when bumping the commit).
+const CLASSICDB_COMMIT = "13e933726f386399d9820138fbd1123e7cda86c8";
+const CLASSICDB_FILE = "Full_DB/ClassicDB_1_12_1_z2815.sql.gz";
+// The trainer rows name teaching spells that the Forever client mostly dropped. The Classic Era client still has
+// them: its learn-spell effects say which recipe each teaching spell teaches. Only SpellEffect is read from it.
+const ERA_BUILD = "1.15.9.70576";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const CACHE_DIR = path.join(ROOT, ".cache");
@@ -52,6 +67,10 @@ const TABLES = [
 ];
 
 const SPELL_EFFECT_CREATE_ITEM = 24;
+// The game doesn't support skill above this yet: recipes learnable only above it are left out.
+const MAX_LEARN_SKILL = 300;
+// SkillLineAbility.AcquireMethod 1: the recipe comes with the profession, so it is learnable at skill 1.
+const ACQUIRE_WITH_PROFESSION = 1;
 // ItemEffect.TriggerType 0: the item's "Use:" spell.
 const TRIGGER_USE = 0;
 // Recipes of these professions get the "Use:" text of the item they create.
@@ -170,11 +189,11 @@ const fetchOk = async (url) => {
 
 const exists = (file) => readFile(file).then(() => true, () => false);
 
-const downloadTable = async (table) => {
-  const file = path.join(CACHE_DIR, `wowf-${BUILD}-hotfixes`, `${table}.csv`);
+const downloadTable = async (table, build = BUILD) => {
+  const file = path.join(CACHE_DIR, `${build === BUILD ? "wowf" : "era"}-${build}-hotfixes`, `${table}.csv`);
   if (!(await exists(file))) {
-    log(`downloading ${table}`);
-    const response = await fetchOk(`https://wago.tools/db2/${table}/csv?build=${BUILD}&useHotfixes=true`);
+    log(`downloading ${table} (${build})`);
+    const response = await fetchOk(`https://wago.tools/db2/${table}/csv?build=${build}&useHotfixes=true`);
     await mkdir(path.dirname(file), { recursive: true });
     // Write then rename, so an interrupted download never leaves a truncated CSV that later runs trust.
     await writeFile(`${file}.partial`, await response.text());
@@ -193,6 +212,20 @@ const downloadQuestieFile = async (file) => {
     await rename(`${target}.partial`, target);
   }
   return readFile(target, "utf8");
+};
+
+// The CMaNGOS Classic world database dump, as SQL text. The 13 MB gzip is cached; unzipping takes about a second.
+const loadClassicDb = async () => {
+  const file = path.join(CACHE_DIR, `classicdb-${CLASSICDB_COMMIT}.sql.gz`);
+  if (!(await exists(file))) {
+    log("downloading the CMaNGOS Classic world database (13 MB, one time)");
+    const url = `https://raw.githubusercontent.com/cmangos/classic-db/${CLASSICDB_COMMIT}/${CLASSICDB_FILE}`;
+    const response = await fetchOk(url);
+    await mkdir(CACHE_DIR, { recursive: true });
+    await writeFile(`${file}.partial`, Buffer.from(await response.arrayBuffer()));
+    await rename(`${file}.partial`, file);
+  }
+  return gunzipSync(await readFile(file)).toString("utf8");
 };
 
 // Reads the community listfile and keeps only interface/icons/<name>.blp rows (id;path), cached trimmed.
@@ -230,11 +263,13 @@ const loadIconNames = async () => {
 const byId = (rows) => new Map(rows.map((row) => [row.ID, row]));
 
 const main = async () => {
-  const tables = await Promise.all(TABLES.map(downloadTable));
+  const tables = await Promise.all(TABLES.map((table) => downloadTable(table)));
   const [skillLines, abilities, tradeCategories, spellNames, reagentRows, effects, itemRows, sparseRows,
     appearanceLinks, appearances, itemEffects, itemEffectLinks, spellRows, spellMiscRows, durationRows, radiusRows,
     auraOptionRows] = tables;
-  const icons = await loadIconNames();
+  const [icons, classicDb, eraEffects] = await Promise.all([
+    loadIconNames(), loadClassicDb(), downloadTable("SpellEffect", ERA_BUILD),
+  ]);
 
   // Professions: top-level skill lines (not the per-tier children) with a profession name and category.
   const professions = PROFESSIONS.map(({ key, name, tier }) => {
@@ -274,6 +309,34 @@ const main = async () => {
     learns,
   );
 
+  // Learnable level: the lowest skill a recipe item or a trainer asks, or 1 for recipes that come with the profession.
+  // The client tables say 1 for nearly everything (SkillLineAbility.MinSkillLineRank), so they aren't used.
+  const requiredRankByItem = new Map(sparseRows.map((row) => [toInt(row.ID), toInt(row.RequiredSkillRank)]));
+  const eraLearns = new Map(learns);
+  for (const effect of eraEffects.filter((row) => toInt(row.Effect) === SPELL_EFFECT_LEARN_SPELL)) {
+    const spell = toInt(effect.SpellID);
+    eraLearns.set(spell, [...(eraLearns.get(spell) ?? []), toInt(effect.EffectTriggerSpell)]);
+  }
+  const trainerLevels = trainerSkillLevels(
+    [...readSqlTable(classicDb, "npc_trainer"), ...readSqlTable(classicDb, "npc_trainer_template")],
+    eraLearns,
+    new Set(professions.map((profession) => profession.skillLine)),
+  );
+  const learnOrigins = { item: 0, trainer: 0, profession: 0 };
+  const learnLevel = (ability) => {
+    const spell = toInt(ability.Spell);
+    const candidates = [
+      ...(taughtByItem.get(spell) ?? []).map((item) => ["item", requiredRankByItem.get(item) ?? 0]),
+      ["trainer", trainerLevels.get(spell) ?? 0],
+      ["profession", toInt(ability.AcquireMethod) === ACQUIRE_WITH_PROFESSION ? 1 : 0],
+    ].filter(([, level]) => level > 0).sort(([, a], [, b]) => a - b);
+    if (candidates.length === 0) {
+      return undefined;
+    }
+    learnOrigins[candidates[0][0]] += 1;
+    return candidates[0][1];
+  };
+
   // Recipes: one per (profession, spell) ability row that has reagents or creates an item.
   const recipes = [];
   const seen = new Set();
@@ -311,6 +374,10 @@ const main = async () => {
       trivialHigh: toInt(ability.TrivialSkillLineRankHigh),
       source: taughtByItem.has(toInt(ability.Spell)) ? "item" : "trainer",
     };
+    const learn = learnLevel(ability);
+    if (learn !== undefined) {
+      recipe.learn = learn;
+    }
     if (!spellNameById.has(ability.Spell)) {
       warnings.push(`spell ${ability.Spell} has no name`);
     }
@@ -330,13 +397,16 @@ const main = async () => {
   const excluded = new Set(EXCLUDED_CATEGORIES.map((name) => name.toLowerCase()));
   const isExcluded = (recipe) => {
     const name = categoryById.get(String(recipe.category))?.Name_lang ?? "";
-    return excluded.has(name.toLowerCase());
+    return excluded.has(name.toLowerCase()) || (recipe.learn ?? 0) > MAX_LEARN_SKILL;
   };
+  const tooHigh = recipes.filter((recipe) => (recipe.learn ?? 0) > MAX_LEARN_SKILL);
   const dropped = recipes.filter(isExcluded);
   recipes.splice(0, recipes.length, ...recipes.filter((recipe) => !isExcluded(recipe)));
   const keptItems = referencedItems(recipes);
   const droppedItems = [...referencedItems(dropped)].filter((id) => !keptItems.has(id)).length;
-  log(`dropped ${dropped.length} recipes (${EXCLUDED_CATEGORIES.join(", ")}) and ${droppedItems} items only they use`);
+  log(`dropped ${dropped.length} recipes (${EXCLUDED_CATEGORIES.join(", ")}, or learnable above ${MAX_LEARN_SKILL}) `
+    + `and ${droppedItems} items only they use`);
+  log(`  above ${MAX_LEARN_SKILL}: ${tooHigh.map((recipe) => `${recipe.name} ${recipe.learn}`).join(", ") || "none"}`);
 
   // Descriptions: the "Use:" text of the created item, with its $ tokens resolved. A token the resolver doesn't know
   // fails the build: extend scripts/descriptions.mjs rather than shipping "$s1".
@@ -493,7 +563,8 @@ const main = async () => {
     }),
   })).filter((rule) => rule.items.length > 0);
   const areaNames = new Map(areaRows.map((row) => [toInt(row.ID), row.AreaName_lang]));
-  const { located, unmatched } = locateItems(readQuestieObjects(objectText, deltaText), rules);
+  const questieObjects = readQuestieObjects(objectText, deltaText);
+  const { located, unmatched } = locateItems(questieObjects, rules);
   const locationItems = {};
   const unnamedZones = new Set();
   for (const item of [...located.keys()].sort((a, b) => a - b)) {
@@ -503,9 +574,58 @@ const main = async () => {
       locationItems[item] = names;
     }
   }
+
+  // Fish: the zones whose fishing loot has them (CMaNGOS, by AreaTable id, subzones counted as their zone), then the
+  // zones where a pool that yields them spawns (pool loot from CMaNGOS, pool spawns from QuestieDB's Forever data).
+  const parentById = new Map(areaRows.map((row) => [toInt(row.ID), toInt(row.ParentAreaID)]));
+  const zoneOf = (area) => {
+    let zone = area;
+    for (let depth = 0; parentById.get(zone) && depth < 10; depth += 1) {
+      zone = parentById.get(zone);
+    }
+    return zone;
+  };
+  const fish = gatherables.fishing ?? [];
+  const references = readSqlTable(classicDb, "reference_loot_template");
+  const fishedIn = fishingAreas(readSqlTable(classicDb, "fishing_loot_template"), references, fish);
+  const yields = poolYields(readSqlTable(classicDb, "gameobject_template"),
+    readSqlTable(classicDb, "gameobject_loot_template"), references, fish);
+  const fishWithout = [];
+  for (const item of fish) {
+    const chances = new Map();
+    for (const [area, chance] of fishedIn.get(item) ?? []) {
+      const name = areaNames.get(zoneOf(area));
+      if (!name) {
+        unnamedZones.add(area);
+      } else {
+        chances.set(name, Math.max(chances.get(name) ?? 0, chance));
+      }
+    }
+    const spawns = new Map();
+    for (const [pool, caught] of yields) {
+      if (!caught.includes(item)) {
+        continue;
+      }
+      for (const [zone, count] of questieObjects.get(pool)?.zones ?? []) {
+        const name = areaNames.get(zoneOf(zone));
+        if (name) {
+          spawns.set(name, (spawns.get(name) ?? 0) + count);
+        }
+      }
+    }
+    const names = orderFishZones(chances, spawns);
+    if (names.length > 0) {
+      locationItems[item] = names;
+    } else {
+      fishWithout.push(item);
+    }
+  }
+
   const locations = {
     source: `QuestieDB ${QUESTIE_COMMIT} (GPLv3, https://github.com/Questie/QuestieDB): `
-      + "only the zones each node spawns in, no files or coordinates",
+      + "only the zones each node and fishing pool spawns in, no files or coordinates. "
+      + `CMaNGOS classic-db ${CLASSICDB_COMMIT} (GPLv3, https://github.com/cmangos/classic-db): `
+      + "only the zones each fish is caught in and the fish each pool yields, no files or rows",
     build: BUILD,
     items: locationItems,
   };
@@ -529,16 +649,22 @@ const main = async () => {
     const gatherableCount = String(profession.gatherables.length).padStart(11);
     log(`${profession.name.padEnd(16)} ${String(count).padStart(7)}  ${gatherableCount}`);
   }
-  log(`\nlocations for ${Object.keys(locationItems).length} of ${locatable.size} Herbalism gatherables`);
+  const herbsLocated = [...locatable].filter((id) => locationItems[id]).length;
+  log(`\nlocations for ${herbsLocated} of ${locatable.size} Herbalism gatherables`);
   for (const key of LOCATION_PROFESSIONS) {
     const lacking = (gatherables[key] ?? []).filter((id) => !locationItems[id]);
     log(`  ${key} without locations: ${lacking.map((id) => `${id} ${items[id].name}`).join(", ") || "none"}`);
   }
   log(`  rule items that are no kept Herbalism gatherable, left out: ${[...skippedRuleItems].join(", ") || "none"}`);
   const unmatchedNames = unmatched.map((rule) => rule.node ?? rule.ids.join("/")).join(", ");
+  log(`\nfish without locations: ${fishWithout.map((id) => `${id} ${items[id].name}`).join(", ") || "none"}`);
   log(`  rules matching no object with spawns: ${unmatchedNames || "none"}`);
   log(`  spawn zones without an AreaTable name, skipped: ${[...unnamedZones].join(", ") || "none"}`);
   const fromItems = recipes.filter((recipe) => recipe.source === "item").length;
+  const unknownLearn = recipes.filter((recipe) => recipe.learn === undefined);
+  log(`\nlearnable level from a recipe item ${learnOrigins.item}, a trainer ${learnOrigins.trainer}, `
+    + `the profession ${learnOrigins.profession}, unknown ${unknownLearn.length}:`);
+  log(`  ${unknownLearn.map((recipe) => `${recipe.profession}:${recipe.name}`).join(", ") || "none"}`);
   log(`\nrecipes taught by an item ${fromItems}, by a trainer or with the profession ${recipes.length - fromItems}`);
   log(`\nAlchemy, Cooking and First Aid recipes without a "Use:" description: ${undescribed.length}`);
   log(`  ${undescribed.join(", ") || "none"}`);

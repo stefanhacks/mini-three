@@ -260,7 +260,7 @@ export const createDetailPane = (
   };
 
   /**
-   * "Found in" for Herbalism and Mining gatherables: the zones their nodes spawn in, most spawns first, as one
+   * "Found in" for herbs and fish: the zones their nodes spawn in or they are caught in, most likely first, as one
    * wrapped line. Returns the y where the next section starts (unchanged when the item has no known nodes).
    */
   const foundIn = (itemId: number, top: number): number => {

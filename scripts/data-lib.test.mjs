@@ -142,12 +142,13 @@ describe("spellsTaughtByItems", () => {
   ]);
   const learns = new Map([[483, [300]]]);
 
-  it("counts learn triggers and learn spells, not items that only cast the recipe", () => {
-    const links = [{ effect: 1, item: 10 }, { effect: 2, item: 20 }, { effect: 3, item: 30 }];
-    expect(spellsTaughtByItems(effects, links, learns)).toEqual(new Set([100, 300]));
+  it("counts learn triggers and learn spells, not items that only cast the recipe, each teaching item once", () => {
+    const links = [{ effect: 1, item: 10 }, { effect: 2, item: 20 }, { effect: 3, item: 30 }, { effect: 1, item: 11 },
+      { effect: 1, item: 10 }];
+    expect(spellsTaughtByItems(effects, links, learns)).toEqual(new Map([[100, [10, 11]], [300, [30]]]));
   });
 
   it("ignores links to effects missing from the table", () => {
-    expect(spellsTaughtByItems(effects, [{ effect: 404, item: 40 }], learns)).toEqual(new Set());
+    expect(spellsTaughtByItems(effects, [{ effect: 404, item: 40 }], learns)).toEqual(new Map());
   });
 });
