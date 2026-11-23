@@ -180,7 +180,11 @@ const BAG_FAMILY_CHECKS = [
 const log = (...args) => console.log(...args);
 
 const fetchOk = async (url) => {
-  const response = await fetch(url);
+  const response = await fetch(url).catch((error) => {
+    // Node's fetch ignores HTTPS_PROXY unless asked (Node 22.21 or newer): the usual cause in a sandbox.
+    throw new Error(`${url} could not be reached (${error.cause?.code ?? error.message}). Behind a proxy, run with `
+      + "NODE_USE_ENV_PROXY=1, see docs/DATA.md");
+  });
   if (!response.ok) {
     throw new Error(`${url} answered ${response.status}`);
   }

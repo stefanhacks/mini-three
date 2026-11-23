@@ -2,6 +2,8 @@
 
 Browser game client. Vite + TypeScript + Pixi.js (`pixi.js` is the only runtime dependency).
 
+`docs/DATA.md` says how to update the game data (`npm run data`) and how to read its report. Read it before touching `src/data/*.json` or `scripts/`.
+
 ## Commands
 
 - `npm run dev`: local dev server
