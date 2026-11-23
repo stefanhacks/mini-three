@@ -495,10 +495,10 @@ export const recipeItemSources = (itemsByRecipe, { items, npcs, quests, dropChan
 
   /**
    * The mob most likely to drop one of `found` ([id, item] pairs): the best chance among the mobs of the most
-   * preferred rank tier that drops it (see RANK_TIERS), else (no chance known, e.g. Forever-only mobs) any listed mob. Ties go to the mob with most spawns,
-   * then the lowest id. Returns { npc, zone?, chance? }, { world: true, chance? } when more than WORLD_DROP_MOBS mobs
-   * share the best chance, {} when only objects or containers drop it, or undefined when nothing does. Chances are
-   * percent, to two significant digits.
+   * preferred rank tier that drops it (see RANK_TIERS), else (no chance known, e.g. Forever-only mobs) any listed
+   * mob. Ties go to the mob with most spawns, then the lowest id. Returns { npc, zone?, chance? }, { world: true,
+   * chance? } when more than WORLD_DROP_MOBS mobs share the best chance, {} when only objects or containers drop it,
+   * or undefined when nothing does. Chances are percent, to two significant digits.
    */
   const bestDrop = (found) => {
     if (!found.some(([, item]) => drops(item))) {

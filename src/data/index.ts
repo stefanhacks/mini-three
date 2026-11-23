@@ -93,9 +93,10 @@ export interface RecipeSource {
   drop?: RecipeDrop;
 }
 
-// The mob most likely to drop a recipe item (common mobs, then elites and bosses, then rares), the zone it spawns in most, and its chance in
-// percent (two significant digits). `world`: too many mobs share the best chance to name one. Empty when only objects
-// or containers drop it. Mobs no server database covers (Forever-only) have no chance; some dungeon mobs no zone.
+// The mob most likely to drop a recipe item (common mobs, then elites and bosses, then rares), the zone it spawns in
+// most, and its chance in percent (two significant digits). `world`: too many mobs share the best chance to name
+// one. Empty when only objects or containers drop it. Mobs no server database covers (Forever-only) have no chance;
+// some dungeon mobs no zone.
 export interface RecipeDrop {
   npc?: string;
   zone?: string;
