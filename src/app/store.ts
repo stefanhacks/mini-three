@@ -9,7 +9,7 @@ export interface AppState {
   collapsed: ReadonlySet<string>;
   /** The mobile layout shows the detail pane over the list. Transient; desktop always shows both. */
   detailOpen: boolean;
-  /** `recipeKey`s of the recipes marked as known. Saved. */
+  /** `recipeKey`s of the recipes the owner marked as known. From the server. */
   known: ReadonlySet<string>;
   /** Professions whose list shows only known recipes; each tab keeps its own Known only. Saved. */
   knownOnly: ReadonlySet<ProfessionKey>;
@@ -18,8 +18,14 @@ export interface AppState {
    * Transient: never saved, kept across tabs and layout rebuilds.
    */
   search: string | null;
-  /** Notes by `recipeKey` (recipes) or `item:<id>` (items). Saved. */
+  /** The owner's notes by `recipeKey` (recipes) or `itemKey` (items). From the server. */
   notes: Readonly<Record<string, string>>;
+  /** Whether `notes` and `known` arrived from the server yet: until then they are empty, and on failure stay so. */
+  shared: "loading" | "ready" | "failed";
+  /** The owner is logged in: notes and Known can be edited. Transient. */
+  canEdit: boolean;
+  /** Why the last save of `key` failed (it was undone), until the next save or edit. Transient. */
+  saveError: { key: string; message: string } | null;
   /**
    * The entry being edited: its unsaved note text and, for recipes, its unsaved known flag (absent for items).
    * Transient: never saved, and cleared when the entry is left.

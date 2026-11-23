@@ -1,4 +1,5 @@
 import { Container, Graphics, Rectangle, type Text, type Ticker } from "pixi.js";
+import type { AppState } from "../../app/store";
 import type { Recipe } from "../../data";
 import { itemKey } from "../../data/keys";
 import {
@@ -23,15 +24,39 @@ export interface PaneBox {
 export interface DetailPane {
   view: Container;
   /**
-   * Rebuilds the pane. `known` is the selected recipe's flag (ignored for items), `note` the entry's saved note.
-   * `editHeight` is null while reading; while editing it is the height reserved for the textarea, which replaces
-   * the note text, and the pane scrolls to keep that block in view. The scroll offset is kept when the same entry
-   * is shown again (a known toggle, a taller textarea), and reset for a new one.
+   * Rebuilds the pane for `selection`. The scroll offset is kept when the same entry is shown again (a known toggle,
+   * a taller textarea), and reset for a new one.
    */
-  show: (selection: Selection, known: boolean, note: string, editHeight: number | null) => void;
+  show: (selection: Selection, view: DetailView) => void;
   /** Where the note text (or the textarea over it) sits right now, in pane coordinates after scrolling, or null. */
   noteBox: () => PaneBox | null;
 }
+
+/** What the pane shows of the selected entry, besides the entry itself. */
+export interface DetailView {
+  /** The selected recipe's Known flag (ignored for items). */
+  known: boolean;
+  /** The entry's saved note. */
+  note: string;
+  /** Whether the notes have arrived; until they do, the note area says so. */
+  notes: AppState["shared"];
+  /** The owner is logged in: the Edit button shows. */
+  canEdit: boolean;
+  /**
+   * Null while reading. While editing, the height reserved for the textarea, which replaces the note text; the pane
+   * scrolls to keep that block in view.
+   */
+  editHeight: number | null;
+  /** Why the last save of this entry failed, shown under its note. */
+  error: string | null;
+}
+
+/** The note area's text when the entry has no note. */
+const NO_NOTE: Record<AppState["shared"], string> = {
+  loading: "Loading notes…",
+  ready: "No notes yet.",
+  failed: "Notes unavailable.",
+};
 
 interface DetailHandlers {
   onSelectItem: (itemId: number) => void;
@@ -148,17 +173,20 @@ export const createDetailPane = (
   };
 
   /**
-   * "Notes" label, then the note as wrapped text. While editing (`editHeight` set) Save and Cancel join the label
-   * and the text gives way to an empty block of that height, where the textarea sits.
-   * Returns the y under the block.
+   * "Zu's Notes" label, then the note as wrapped text. While editing (`editHeight` set) Save and Cancel join the label
+   * and the text gives way to an empty block of that height, where the textarea sits. Visitors only see it when the
+   * entry has a note. Returns the y under the block (`top` when it is left out).
    */
-  const noteBlock = (top: number, text: string, editHeight: number | null): number => {
+  const noteBlock = (top: number, { note: text, notes, canEdit, editHeight, error }: DetailView): number => {
+    if (!canEdit && text.trim() === "" && !error) {
+      return top;
+    }
     const labelY = top + 14;
-    body.addChild(label("Notes:", TEXT_STYLES.label, PAD, labelY));
+    body.addChild(label("Zu's Notes:", TEXT_STYLES.label, PAD, labelY));
     const buttonY = labelY - EDIT_HEIGHT / 2;
     const textY = labelY + NOTE_LABEL_GAP - 6;
     if (editHeight !== null) {
-      // Save and Cancel stay on the "Notes:" line, next to the textarea: on a phone the keyboard covers the corner.
+      // Save and Cancel stay on the label's line, next to the textarea: on a phone the keyboard covers the corner.
       const save = button(kit, "Save", EDIT_WIDTH, handlers.onSaveNote, EDIT_HEIGHT);
       const cancel = button(kit, "Cancel", EDIT_WIDTH, handlers.onCancelNote, EDIT_HEIGHT);
       body.addChild(at(save.view, PAD + inner - EDIT_WIDTH * 2 - EDIT_GAP, buttonY));
@@ -170,12 +198,18 @@ export const createDetailPane = (
       return textY + editHeight;
     }
     const shown = wrapped(text.trim() === ""
-      ? label("No notes yet.", TEXT_STYLES.muted, PAD, textY, 0, 0)
+      ? label(NO_NOTE[notes], TEXT_STYLES.muted, PAD, textY, 0, 0)
       : label(text, TEXT_STYLES.body, PAD, textY, 0, 0), inner, true);
     body.addChild(shown);
     const blockHeight = Math.max(NOTE_MIN_HEIGHT, shown.height);
     note = { x: PAD, y: textY, width: inner, height: blockHeight };
-    return textY + blockHeight;
+    if (!error) {
+      return textY + blockHeight;
+    }
+    const message = wrapped(label(error, tinted(TEXT_STYLES.label, PALETTE.text.error), PAD, textY + shown.height + 6,
+      0, 0), inner);
+    body.addChild(message);
+    return Math.max(textY + blockHeight, message.y + message.height);
   };
 
   /**
@@ -225,7 +259,8 @@ export const createDetailPane = (
     return gridTop + 14 + Math.ceil(recipe.reagents.length / columns) * REAGENT_ROW;
   };
 
-  const showRecipe = (recipe: Recipe, known: boolean, text: string, editHeight: number | null): number => {
+  const showRecipe = (recipe: Recipe, view: DetailView): number => {
+    const { known, editHeight } = view;
     const profession = professionByKey.get(recipe.profession);
     const created = recipe.item ? itemOf(recipe.item) : null;
     const editing = editHeight !== null;
@@ -251,7 +286,7 @@ export const createDetailPane = (
       body.addChild(at(knownBox.view, PAD + inner - 72, PAD + 2));
     }
 
-    return recipeSource(recipe, noteBlock(useBlock(underDivider, created?.use), text, editHeight) + SECTION_GAP);
+    return recipeSource(recipe, noteBlock(useBlock(underDivider, created?.use), view) + SECTION_GAP);
   };
 
   /**
@@ -269,7 +304,7 @@ export const createDetailPane = (
     return top + 14 + list.height + SECTION_GAP;
   };
 
-  const showItem = (itemId: number, text: string, editHeight: number | null): number => {
+  const showItem = (itemId: number, view: DetailView): number => {
     const item = itemOf(itemId);
     const gatherer = gathererOf(itemId);
     const subtitle = gatherer ? `Gathered with ${gatherer.name}` : "Reagent";
@@ -277,7 +312,7 @@ export const createDetailPane = (
 
     const users = (recipesUsingItem.get(itemId) ?? []).slice()
       .sort((a, b) => a.profession.localeCompare(b.profession) || a.trivialLow - b.trivialLow);
-    const top = foundIn(itemId, noteBlock(useBlock(underDivider, item.use), text, editHeight) + SECTION_GAP);
+    const top = foundIn(itemId, noteBlock(useBlock(underDivider, item.use), view) + SECTION_GAP);
     body.addChild(label(`Used in ${users.length} recipe${users.length === 1 ? "" : "s"}:`, TEXT_STYLES.label,
       PAD, top));
     // The pane scrolls, so the whole list is shown.
@@ -294,7 +329,8 @@ export const createDetailPane = (
   return {
     view,
     noteBox: () => note && { ...note, y: note.y - scroll },
-    show: (selection, known, text, editHeight) => {
+    show: (selection, view) => {
+      const { editHeight } = view;
       body.destroy({ children: true });
       body = new Container();
       content.addChild(body);
@@ -304,12 +340,12 @@ export const createDetailPane = (
         body.addChild(label("Select a recipe or a gatherable.", TEXT_STYLES.muted, width / 2, height / 2, 0.5));
         contentHeight = 0;
       } else {
-        const bottom = selection.kind === "recipe" ? showRecipe(selection.recipe, known, text, editHeight)
-          : showItem(selection.itemId, text, editHeight);
+        const bottom = selection.kind === "recipe" ? showRecipe(selection.recipe, view)
+          : showItem(selection.itemId, view);
         // Room under the content for the corner Edit button, so the last line never hides behind it.
-        contentHeight = bottom + PAD + (editHeight === null ? EDIT_HEIGHT : 0);
+        contentHeight = bottom + PAD + (editHeight === null && view.canEdit ? EDIT_HEIGHT : 0);
       }
-      edit.view.visible = selection !== null && editHeight === null;
+      edit.view.visible = selection !== null && editHeight === null && view.canEdit;
       if (key !== shownKey) {
         drag.stop();
         scroll = 0;

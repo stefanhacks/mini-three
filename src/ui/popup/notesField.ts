@@ -1,4 +1,4 @@
-import { MAX_NOTE_LENGTH } from "../../app/storage";
+import { MAX_NOTE_LENGTH } from "../../app/entries";
 import { type OverlayField, createOverlayField } from "../dom";
 
 export interface NotesField extends Omit<OverlayField, "open" | "placedSize"> {
@@ -25,7 +25,7 @@ export interface NotesFieldHandlers {
 export const createNotesField = ({ onInput, onSave, onCancel }: NotesFieldHandlers): NotesField => {
   const area = document.createElement("textarea");
   area.maxLength = MAX_NOTE_LENGTH;
-  area.setAttribute("aria-label", "Notes");
+  area.setAttribute("aria-label", "Zu's Notes");
   const { open, close, placedSize, ...field } = createOverlayField(area, {
     padding: "3px 6px",
     border: "0",

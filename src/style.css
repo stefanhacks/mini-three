@@ -33,3 +33,8 @@ canvas {
 .upright-notice:not([hidden]) {
   display: flex;
 }
+
+/* The owner's login dialog is a flex box only while shown, like the upright notice. */
+.key-dialog:not([hidden]) {
+  display: flex;
+}

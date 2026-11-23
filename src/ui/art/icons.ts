@@ -19,6 +19,22 @@ const outlined = (path: Path, width = 2): PieceSpec => ({
 
 const s = ICON_SIZE;
 
+/** A padlock: white shackle and body over a dark outline, a dark keyhole. Open, the shackle is lifted out. */
+const padlock = (open: boolean): PieceSpec => ({
+  width: ICON_SIZE,
+  height: ICON_SIZE,
+  draw: ({ g }) => {
+    const lift = open ? 2 : 0;
+    const shackle = () => g.moveTo(5, 8 - lift).lineTo(5, 5.5 - lift).arc(8, 5.5 - lift, 3, Math.PI, 0)
+      .lineTo(11, open ? 4 : 8);
+    shackle().stroke({ width: 4, color: PALETTE.ink, cap: "round" });
+    g.roundRect(2.5, 7, 11, 8.5, 2).fill(PALETTE.ink);
+    shackle().stroke({ width: 2, color: 0xffffff, cap: "round" });
+    g.roundRect(3.5, 8, 9, 6.5, 1.5).fill(0xffffff);
+    g.rect(7.4, 10, 1.2, 2.5).fill(PALETTE.ink);
+  },
+});
+
 export const ICONS = {
   chevronUp: outlined((g) => g.moveTo(4, 10).lineTo(8, 6).lineTo(12, 10)),
   chevronDown: outlined((g) => g.moveTo(4, 6).lineTo(8, 10).lineTo(12, 6)),
@@ -30,6 +46,8 @@ export const ICONS = {
   /** Double chevron shown before a recipe name, tinted with a `DIFFICULTY_COLORS` entry. */
   difficulty: outlined((g) => g.moveTo(4, 8).lineTo(8, 4.5).lineTo(12, 8)
     .moveTo(4, 12.5).lineTo(8, 9).lineTo(12, 12.5)),
+  lock: padlock(false),
+  unlock: padlock(true),
   star: {
     width: s,
     height: s,

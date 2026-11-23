@@ -1,5 +1,6 @@
 import { Container, Graphics, Rectangle, type Ticker } from "pixi.js";
-import { cancelEdit, saveEdit, setKnownDraft, startEdit } from "../../app/notesEdit";
+import { cancelEdit, setKnownDraft, startEdit } from "../../app/notesEdit";
+import type { Owner } from "../../app/owner";
 import type { AppState, Store } from "../../app/store";
 import { toggled } from "../../collections";
 import type { Profession, ProfessionKey, Recipe } from "../../data";
@@ -10,7 +11,8 @@ import { type ArtKit, FRAME_TITLE_HEIGHT, PALETTE, SHADOW_SPREAD, TEXT_STYLES, c
 import { FIELD_TEXT_SIZE, FIELD_TEXT_SIZE_MOBILE } from "../dom";
 import { keyboardShift } from "../layout";
 import { SLIDE_MS, tweenAt } from "../motion";
-import { at, button, checkbox, clearChildren, iconSprite, label, piece, roundIcon } from "../widgets";
+import type { KeyDialog } from "../keyDialog";
+import { at, button, checkbox, clearChildren, iconSprite, label, piece, roundIcon, tappable } from "../widgets";
 import { type DetailPane, NOTE_EDIT_MIN_HEIGHT, createDetailPane, noteEditMaxHeight, selectionKey } from "./detail";
 import { type Geometry, desktopGeometry, mobileGeometry, searchInset } from "./geometry";
 import type { NotesField } from "./notesField";
@@ -23,6 +25,10 @@ const PORTRAIT = 72;
 const BACK_X = 48;
 const BACK_WIDTH = 72;
 const BACK_HEIGHT = 22;
+/** The lock's centre, from the frame's right edge: clear of the corner plate. */
+const LOCK_INSET = 30;
+/** The lock's square tap target. */
+const LOCK_HIT = 28;
 /** Room kept between the notes field and the top of the on-screen keyboard. */
 const KEYBOARD_MARGIN = 8;
 /** The detail pane's frame width: the notes field is clipped inside it. */
@@ -58,6 +64,11 @@ export interface PopupEnv {
   /** The DOM search field. Like the notes field, it outlives popups so a rebuild keeps its text and focus. */
   searchField: SearchField;
   layout: PopupLayout;
+  /** The owner's session: login, logout, saving. */
+  owner: Owner;
+  keyDialog: KeyDialog;
+  /** Show the lock even while logged out: the URL asked for it (`zu`). */
+  showLock: boolean;
 }
 
 /** View state that is not in the store, handed from a popup to the one rebuilt in its place. */
@@ -203,7 +214,7 @@ const trackFields = ({ win, detail, g, notesField, searchField, keyboard, isEdit
  * pane in over it from the right, with a Back button in the title strip.
  */
 export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: PopupCarry): Popup => {
-  const { ticker, notesField, searchField, layout } = env;
+  const { ticker, notesField, searchField, layout, owner, keyDialog, showLock } = env;
   const mobile = layout.mode === "mobile";
   const g = layout.mode === "mobile" ? mobileGeometry(layout.width, layout.height) : desktopGeometry();
   const { w, h } = g;
@@ -265,7 +276,7 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
         notesField.focus();
       }
     },
-    onSaveNote: () => saveEdit(store),
+    onSaveNote: () => void owner.save(),
     onCancelNote: () => cancelEdit(store),
   });
   const knownOnlyBox = checkbox(kit, "Known only", TEXT_STYLES.row, (checked) => {
@@ -312,6 +323,18 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   // Always in the tree, hidden on desktop: a button left outside it is never destroyed with the popup, and its
   // caption's listener on the shared text style would keep every rebuilt desktop popup alive.
   win.addChild(at(back.view, BACK_X, (FRAME_TITLE_HEIGHT - BACK_HEIGHT) / 2));
+
+  // The owner's lock, at the title strip's right end: closed while logged out (a press asks for the key), open while
+  // logged in (a press logs out). Logged out, it only shows when the URL asks for it.
+  const lock = iconSprite(kit.icons.lock, w - LOCK_INSET, FRAME_TITLE_HEIGHT / 2 + 1, PALETTE.gold.light);
+  lock.hitArea = new Rectangle(-LOCK_HIT / 2, -LOCK_HIT / 2, LOCK_HIT, LOCK_HIT);
+  win.addChild(tappable(lock, () => {
+    if (store.get().canEdit) {
+      owner.logout();
+    } else {
+      keyDialog.open();
+    }
+  }));
   back.view.visible = false;
   if (mobile) {
     const chevron = iconSprite(kit.icons.chevronRight, 13, 11, PALETTE.text.header);
@@ -344,13 +367,19 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   /** Rebuilds the detail pane from the store: the entry, its saved note, and the textarea's room while editing. */
   const showDetail = () => {
     const state = store.get();
-    const { selection, known, notes } = state;
+    const { selection, known, notes, shared, canEdit } = state;
     const key = selectionKey(selection);
     const editing = shownEdit(state);
-    // While editing, the checkbox shows the draft's known flag; otherwise the saved one.
-    const isKnown = editing?.known !== undefined ? editing.known
-      : selection?.kind === "recipe" && known.has(recipeKey(selection.recipe));
-    detail.show(selection, isKnown, key ? notes[key] ?? "" : "", editing ? editHeight : null);
+    detail.show(selection, {
+      // While editing, the checkbox shows the draft's known flag; otherwise the saved one.
+      known: editing?.known !== undefined ? editing.known
+        : selection?.kind === "recipe" && known.has(recipeKey(selection.recipe)),
+      note: key ? notes[key] ?? "" : "",
+      notes: shared,
+      canEdit,
+      editHeight: editing ? editHeight : null,
+      error: state.saveError && state.saveError.key === key ? state.saveError.message : null,
+    });
   };
 
   /** Sizes the textarea to its text, within the minimum and maximum. True when its height changed. */
@@ -423,6 +452,8 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   const render = (animate: boolean) => {
     const state = store.get();
     tabs.render(state.active);
+    lock.visible = showLock || state.canEdit;
+    lock.texture = state.canEdit ? kit.icons.unlock : kit.icons.lock;
     clearChildren(portrait);
     const profession = professionByKey.get(state.active);
     if (profession) {

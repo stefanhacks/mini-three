@@ -1,7 +1,9 @@
 import "./style.css";
 import { Application } from "pixi.js";
 import { syncBackHistory } from "./app/backHistory";
-import { cancelEdit, cancelEditOnLeave, saveEdit, setDraft } from "./app/notesEdit";
+import { cancelEdit, cancelEditOnLeave, setDraft } from "./app/notesEdit";
+import { createOwner } from "./app/owner";
+import { loadShared } from "./app/shared";
 import { fromSaved, loadSaved, persist } from "./app/storage";
 import { createStore } from "./app/store";
 import { professions } from "./data";
@@ -13,6 +15,7 @@ import { MOBILE_BUTTON_HEIGHT, TABS_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH } from ".
 import { createNotesField } from "./ui/popup/notesField";
 import { type Popup, createPopup } from "./ui/popup/popup";
 import { createSearchField } from "./ui/popup/searchField";
+import { createKeyDialog } from "./ui/keyDialog";
 import { createUprightNotice } from "./ui/uprightNotice";
 
 const MAX_RESOLUTION = 2;
@@ -44,11 +47,17 @@ const kit = createArtKit(app.renderer);
 const backdrop = createBackdrop(app.renderer);
 const store = createStore(fromSaved(loadSaved(new Set(professions.map((profession) => profession.key)))));
 persist(store);
+void loadShared(store);
+const owner = createOwner(store);
+void owner.restore();
+const keyDialog = createKeyDialog(owner.login);
+/** `?zu` (any value) in the address shows the owner's lock. */
+const showLock = new URLSearchParams(window.location.search).has("zu");
 app.stage.addChild(backdrop.view);
 
 const notesField = createNotesField({
   onInput: (key, text) => setDraft(store, key, text),
-  onSave: () => saveEdit(store),
+  onSave: () => void owner.save(),
   onCancel: () => cancelEdit(store),
 });
 const searchField = createSearchField((text) => store.set({ search: text }));
@@ -89,6 +98,9 @@ const build = (width: number, height: number) => {
     ticker: app.ticker,
     notesField,
     searchField,
+    owner,
+    keyDialog,
+    showLock,
     layout: mode === "mobile"
       ? { mode, width: width - MOBILE_MARGIN * 2, height: height - MOBILE_MARGIN_Y * 2 }
       : { mode: "desktop" },

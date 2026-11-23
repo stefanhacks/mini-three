@@ -1,45 +1,33 @@
 import type { ProfessionKey } from "../data";
 import { PROFESSION_KEYS } from "../data/keys";
+import { isRecord, strings } from "./entries";
 import type { AppState, Store } from "./store";
 
 export const STORAGE_KEY = "hanto:v1";
 const VERSION = 1;
 const SAVE_DELAY = 300;
-export const MAX_NOTE_LENGTH = 1000;
 
 /**
- * What survives a reload. Plain JSON types only; sets become arrays. The selection and any note being edited are
- * transient and not saved.
+ * What this browser remembers across a reload: how the visitor last looked at the list. Plain JSON types only; sets
+ * become arrays. Notes and Known flags are the owner's and come from the server.
  */
 export interface SavedData {
   active: ProfessionKey;
   collapsed: string[];
-  /** `recipeKey`s of known recipes. */
-  known: string[];
   /** Professions with Known only on. */
   knownOnly: ProfessionKey[];
-  /** Notes by `recipeKey` for recipes and `item:<id>` for items. Empty notes are not stored. */
-  notes: Record<string, string>;
 }
 
-export const emptySaved = (): SavedData => ({
-  active: PROFESSION_KEYS[0], collapsed: [], known: [], knownOnly: [], notes: {},
-});
+export const emptySaved = (): SavedData => ({ active: PROFESSION_KEYS[0], collapsed: [], knownOnly: [] });
 
 export const serialize = (data: SavedData): string => JSON.stringify({ version: VERSION, ...data });
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const strings = (value: unknown): string[] =>
-  Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 
 /**
  * Reads saved data back. Anything unreadable (not JSON, another version, wrong types) gives a clean start, and bad
  * pieces inside valid data are dropped one by one. Never throws. `validKeys` are the professions that exist.
- * Saves from before the fixed tabs also hold `chosen` (the picked professions): it is ignored, and their notes and
- * known flags for the five professions carry over. Saves from before Known only was per profession hold it as a
- * boolean: `true` turns it on for the saved active profession only.
+ * Older saves also hold notes, Known flags and `chosen` (the profession picker's): all ignored, and dropped from
+ * storage on the next save. Saves from before Known only was per profession hold it as a boolean: `true` turns it on
+ * for the saved active profession only.
  */
 export const parse = (raw: string | null, validKeys: ReadonlySet<string>): SavedData => {
   try {
@@ -48,23 +36,13 @@ export const parse = (raw: string | null, validKeys: ReadonlySet<string>): Saved
       return emptySaved();
     }
     const isProfession = (key: string) => validKeys.has(key);
-    // Recipe keys are `<profession>:<recipe id>`, item keys `item:<item id>`.
-    const isRecipeKey = (key: string) => /^[a-z-]+:\d+$/.test(key) && isProfession(key.split(":")[0]);
-    const isNoteKey = (key: string) => isRecipeKey(key) || /^item:\d+$/.test(key);
-
     const active = typeof data.active === "string" && isProfession(data.active)
       ? data.active as ProfessionKey : PROFESSION_KEYS[0];
-    const notes = isRecord(data.notes)
-      ? Object.fromEntries(Object.entries(data.notes).flatMap(([key, text]): [string, string][] =>
-        isNoteKey(key) && typeof text === "string" && text !== "" ? [[key, text.slice(0, MAX_NOTE_LENGTH)]] : []))
-      : {};
     return {
       active,
       collapsed: strings(data.collapsed),
-      known: [...new Set(strings(data.known).filter(isRecipeKey))],
       knownOnly: data.knownOnly === true ? [active]
         : [...new Set(strings(data.knownOnly).filter(isProfession))] as ProfessionKey[],
-      notes,
     };
   } catch {
     return emptySaved();
@@ -74,21 +52,22 @@ export const parse = (raw: string | null, validKeys: ReadonlySet<string>): Saved
 export const toSaved = (state: AppState): SavedData => ({
   active: state.active,
   collapsed: [...state.collapsed],
-  known: [...state.known],
   knownOnly: [...state.knownOnly],
-  notes: { ...state.notes },
 });
 
-/** The saved part of the state, with the transient fields at their defaults. */
+/** The saved part of the state, with the rest at its start: no notes until the server sends them, not editing. */
 export const fromSaved = (data: SavedData): AppState => ({
   active: data.active,
   selection: null,
   collapsed: new Set(data.collapsed),
   detailOpen: false,
-  known: new Set(data.known),
+  known: new Set(),
   knownOnly: new Set(data.knownOnly),
   search: null,
-  notes: data.notes,
+  notes: {},
+  shared: "loading",
+  canEdit: false,
+  saveError: null,
   editing: null,
 });
 
@@ -110,8 +89,7 @@ const write = (state: AppState) => {
 };
 
 const savedFieldsChanged = (a: AppState, b: AppState): boolean =>
-  a.active !== b.active || a.collapsed !== b.collapsed || a.known !== b.known
-  || a.knownOnly !== b.knownOnly || a.notes !== b.notes;
+  a.active !== b.active || a.collapsed !== b.collapsed || a.knownOnly !== b.knownOnly;
 
 /** Saves the store about 300 ms after its last saved-field change, and right away when the page is hidden. */
 export const persist = (store: Store) => {
