@@ -30,6 +30,10 @@ export interface DetailPane {
   show: (selection: Selection, view: DetailView) => void;
   /** Where the note text (or the textarea over it) sits right now, in pane coordinates after scrolling, or null. */
   noteBox: () => PaneBox | null;
+  /** True while the current press scrolls the content. */
+  scrolling: () => boolean;
+  /** Drops the current press, so a horizontal swipe doesn't scroll the content too. */
+  cancelScroll: () => void;
 }
 
 /** What the pane shows of the selected entry, besides the entry itself. */
@@ -329,6 +333,8 @@ export const createDetailPane = (
   return {
     view,
     noteBox: () => note && { ...note, y: note.y - scroll },
+    scrolling: () => drag.dragged(),
+    cancelScroll: () => drag.cancel(),
     show: (selection, view) => {
       const { editHeight } = view;
       body.destroy({ children: true });

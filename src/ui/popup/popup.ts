@@ -11,6 +11,7 @@ import { type ArtKit, FRAME_TITLE_HEIGHT, PALETTE, SHADOW_SPREAD, TEXT_STYLES, c
 import { FIELD_TEXT_SIZE, FIELD_TEXT_SIZE_MOBILE } from "../dom";
 import { keyboardShift } from "../layout";
 import { SLIDE_MS, tweenAt } from "../motion";
+import { attachSwipeBack } from "./swipeBack";
 import type { KeyDialog } from "../keyDialog";
 import { at, button, checkbox, clearChildren, iconSprite, label, piece, roundIcon, tappable } from "../widgets";
 import { type DetailPane, NOTE_EDIT_MIN_HEIGHT, createDetailPane, noteEditMaxHeight, selectionKey } from "./detail";
@@ -125,6 +126,12 @@ const createSlide = (ticker: Ticker, away: number, apply: (x: number) => void) =
       }
       // A reversal mid-way starts from where the pane is, so it never jumps.
       tween = { from: x, to, elapsed: 0 };
+    },
+    /** Holds the pane at `offset` while a finger drags it; the next `to` animates from there. */
+    drag: (offset: number) => {
+      stop();
+      x = Math.min(Math.max(0, offset), away);
+      apply(x);
     },
     stop,
   };
@@ -350,6 +357,16 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     // The textarea can't follow the pane smoothly; it shows once the pane has settled.
     notesField.setVisible(x === 0);
   });
+  if (mobile) {
+    attachSwipeBack(detail.view, g.detail.w, {
+      // Not while a note is edited: the swipe would drop the draft.
+      enabled: () => slide.x() === 0 && store.get().detailOpen && store.get().editing === null,
+      scrolling: detail.scrolling,
+      claim: detail.cancelScroll,
+      move: slide.drag,
+      end: (close) => close ? store.set({ detailOpen: false }) : slide.to(true, true),
+    });
+  }
 
   const keyboard = mobile ? watchKeyboardBand([notesField.element, searchField.element]) : null;
   const textSize = mobile ? FIELD_TEXT_SIZE_MOBILE : FIELD_TEXT_SIZE;
