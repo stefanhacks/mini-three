@@ -7,7 +7,7 @@ const saved: SavedData = {
   active: "herbalism",
   collapsed: ["herbalism:gathered"],
   known: ["alchemy:101", "herbalism:7"],
-  knownOnly: true,
+  knownOnly: ["alchemy"],
   notes: { "alchemy:101": "buy vials", "item:2770": "Elwynn mines" },
 };
 
@@ -32,7 +32,7 @@ describe("saved state", () => {
       active: "basketweaving",
       collapsed: ["a", 3],
       known: ["alchemy:1", "basketweaving:2", "nonsense", 9],
-      knownOnly: "yes",
+      knownOnly: ["cooking", "basketweaving", 3, "cooking"],
       notes: {
         "alchemy:1": "ok", "basketweaving:2": "gone", "item:5": "kept", "item:x": "bad", "herbalism:3": 4,
         "cooking:9": "",
@@ -42,7 +42,7 @@ describe("saved state", () => {
       active: "alchemy",
       collapsed: ["a"],
       known: ["alchemy:1"],
-      knownOnly: false,
+      knownOnly: ["cooking"],
       notes: { "alchemy:1": "ok", "item:5": "kept" },
     });
   });
@@ -61,9 +61,14 @@ describe("saved state", () => {
       active: "alchemy",
       collapsed: [],
       known: ["herbalism:7"],
-      knownOnly: false,
+      knownOnly: [],
       notes: { "herbalism:7": "keep", "item:2770": "kept too" },
     });
+  });
+
+  it("reads the old shared Known only as on for the saved active profession only", () => {
+    expect(parse(JSON.stringify({ ...saved, version: 1, knownOnly: true }), valid).knownOnly).toEqual(["herbalism"]);
+    expect(parse(JSON.stringify({ ...saved, version: 1, knownOnly: false }), valid).knownOnly).toEqual([]);
   });
 
   it("caps note length", () => {

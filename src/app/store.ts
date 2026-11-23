@@ -11,8 +11,8 @@ export interface AppState {
   detailOpen: boolean;
   /** `recipeKey`s of the recipes marked as known. Saved. */
   known: ReadonlySet<string>;
-  /** Show only known recipes in the list. Saved. */
-  knownOnly: boolean;
+  /** Professions whose list shows only known recipes; each tab keeps its own Known only. Saved. */
+  knownOnly: ReadonlySet<ProfessionKey>;
   /**
    * The search field: null while closed, else its text (blank shows everything). Filters the active tab's list.
    * Transient: never saved, kept across tabs and layout rebuilds.

@@ -258,7 +258,16 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     onCancelNote: () => cancelEdit(store),
   });
   const knownOnlyBox = checkbox(kit, "Known only", TEXT_STYLES.row,
-    (knownOnly) => store.set({ knownOnly }), store.get().knownOnly);
+    (checked) => {
+      const { active, knownOnly } = store.get();
+      const next = new Set(knownOnly);
+      if (checked) {
+        next.add(active);
+      } else {
+        next.delete(active);
+      }
+      store.set({ knownOnly: next });
+    }, store.get().knownOnly.has(store.get().active));
   // Search is a toggle: open, it reads "Close" and keeps the pressed look.
   const searchButton = button(kit, "Search", g.professions.w, () => {
     if (store.get().search === null) {
@@ -523,7 +532,7 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   const renderList = (profession: Profession, recipes: Recipe[], state: AppState): string | null => {
     const query = searchQuery(state);
     const rows = buildRows(profession, state.collapsed, { recipes, itemOf, recipeKey, zonesOf: locationsOf },
-      { known: state.known, knownOnly: state.knownOnly, query });
+      { known: state.known, knownOnly: state.knownOnly.has(profession.key), query });
     list.setRows(rows, renderedProfession !== profession.key || renderedQuery !== query);
     renderedProfession = profession.key;
     renderedQuery = query;
@@ -559,7 +568,7 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
       recipes.length > 0 ? `Known ${knownCount}/${recipes.length} recipes` : "",
       profession.gatherables.length > 0 ? `${profession.gatherables.length} gatherables` : "",
     ].filter(Boolean).join("  ·  ");
-    knownOnlyBox.set(state.knownOnly);
+    knownOnlyBox.set(state.knownOnly.has(profession.key));
     list.setTopInset(searching ? searchInset(g.search) : 0);
     if (searching) {
       searchField.open(state.search ?? "");

@@ -16,13 +16,14 @@ export interface SavedData {
   collapsed: string[];
   /** `recipeKey`s of known recipes. */
   known: string[];
-  knownOnly: boolean;
+  /** Professions with Known only on. */
+  knownOnly: ProfessionKey[];
   /** Notes by `recipeKey` for recipes and `item:<id>` for items. Empty notes are not stored. */
   notes: Record<string, string>;
 }
 
 export const emptySaved = (): SavedData => ({
-  active: PROFESSION_KEYS[0], collapsed: [], known: [], knownOnly: false, notes: {},
+  active: PROFESSION_KEYS[0], collapsed: [], known: [], knownOnly: [], notes: {},
 });
 
 export const serialize = (data: SavedData): string => JSON.stringify({ version: VERSION, ...data });
@@ -37,7 +38,8 @@ const strings = (value: unknown): string[] =>
  * Reads saved data back. Anything unreadable (not JSON, another version, wrong types) gives a clean start, and bad
  * pieces inside valid data are dropped one by one. Never throws. `validKeys` are the professions that exist.
  * Saves from before the fixed tabs also hold `chosen` (the picked professions): it is ignored, and their notes and
- * known flags for the five professions carry over.
+ * known flags for the five professions carry over. Saves from before Known only was per profession hold it as a
+ * boolean: `true` turns it on for the saved active profession only.
  */
 export const parse = (raw: string | null, validKeys: ReadonlySet<string>): SavedData => {
   try {
@@ -60,7 +62,8 @@ export const parse = (raw: string | null, validKeys: ReadonlySet<string>): Saved
       active,
       collapsed: strings(data.collapsed),
       known: [...new Set(strings(data.known).filter(isRecipeKey))],
-      knownOnly: data.knownOnly === true,
+      knownOnly: data.knownOnly === true ? [active]
+        : [...new Set(strings(data.knownOnly).filter(isProfession))] as ProfessionKey[],
       notes,
     };
   } catch {
@@ -72,7 +75,7 @@ export const toSaved = (state: AppState): SavedData => ({
   active: state.active,
   collapsed: [...state.collapsed],
   known: [...state.known],
-  knownOnly: state.knownOnly,
+  knownOnly: [...state.knownOnly],
   notes: { ...state.notes },
 });
 
@@ -83,7 +86,7 @@ export const fromSaved = (data: SavedData): AppState => ({
   collapsed: new Set(data.collapsed),
   detailOpen: false,
   known: new Set(data.known),
-  knownOnly: data.knownOnly,
+  knownOnly: new Set(data.knownOnly),
   search: null,
   notes: data.notes,
   editing: null,
