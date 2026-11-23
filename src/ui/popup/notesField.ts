@@ -1,4 +1,4 @@
-import { MAX_NOTE_LENGTH } from "../../app/storage";
+import { MAX_NOTE_LENGTH } from "../../app/entries";
 import { type OverlayField, createOverlayField } from "../dom";
 
 export interface NotesField extends Omit<OverlayField, "open" | "placedSize"> {

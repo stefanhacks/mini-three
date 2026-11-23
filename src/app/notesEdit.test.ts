@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { cancelEdit, editStillValid, noteFromDraft, saveEdit, setKnownDraft, startEdit, withNote } from "./notesEdit";
+import { MAX_NOTE_LENGTH, noteFromDraft } from "./entries";
+import { cancelEdit, editStillValid, saveEdit, setKnownDraft, startEdit, withNote } from "./notesEdit";
 import { createStore } from "./store";
-import { MAX_NOTE_LENGTH, emptySaved, fromSaved } from "./storage";
+import { emptySaved, fromSaved } from "./storage";
 
 describe("notes editing", () => {
   it("saves the trimmed draft, within the length limit", () => {

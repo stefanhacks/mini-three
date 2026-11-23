@@ -1,9 +1,6 @@
 import { toggled } from "../collections";
-import { MAX_NOTE_LENGTH } from "./storage";
+import { noteFromDraft } from "./entries";
 import type { AppState, Store } from "./store";
-
-/** The note text a draft saves as: trimmed, and within the saved length. */
-export const noteFromDraft = (draft: string): string => draft.trim().slice(0, MAX_NOTE_LENGTH);
 
 /** `notes` with `key` set to `text`; an empty text removes the entry, as storage never keeps empty notes. */
 export const withNote = (notes: AppState["notes"], key: string, text: string): AppState["notes"] => {
