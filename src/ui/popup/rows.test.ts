@@ -35,6 +35,13 @@ describe("buildRows", () => {
     ]);
   });
 
+  it("puts the Camping category above the gatherables", () => {
+    const camper: Profession = { ...herbalism, categories: [...herbalism.categories, { id: 4, name: "Camping" }] };
+    const rows = buildRows(camper, new Set(), { ...sources, recipes: [...sources.recipes, recipe(12, 4, 1, "Tent")] }, none);
+    expect(rows.filter((row) => row.kind === "header").map((row) => row.label))
+      .toEqual(["Camping", "Gathered", "Smelting"]);
+  });
+
   it("keeps only the header of a collapsed section", () => {
     const rows = buildRows(herbalism, new Set(["herbalism:gathered"]), sources, none);
     expect(rows[0]).toMatchObject({ kind: "header", collapsed: true, count: 2 });
