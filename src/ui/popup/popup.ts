@@ -340,8 +340,8 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   };
 
   /**
-   * Mobile: square tabs under the title. On one row, a gap follows the primary tabs; on two, the primary tabs take
-   * the first row and the secondary ones the second.
+   * Mobile: square tabs under the title, centred. On one row, a gap follows the primary tabs; on two, the primary
+   * tabs take the first row and the secondary ones the second.
    */
   const renderStrip = (active: ProfessionKey) => {
     tabs.removeChildren().forEach((child) => child.destroy({ children: true }));
@@ -352,15 +352,19 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     const scale = strip.cell / TAB_STEP;
     const inset = (TAB_STEP - TAB_SIZE) / 2;
     const oneRow = strip.perRow >= PROFESSION_KEYS.length;
+    // Each row is centred in the frame: on one row the tier gap counts towards its width.
+    const rowWidth = (row: number) => oneRow ? PROFESSION_KEYS.length * strip.cell + TIER_GAP
+      : (row === 0 ? primaryCount : PROFESSION_KEYS.length - primaryCount) * strip.cell;
     PROFESSION_KEYS.forEach((key, i) => {
       const secondary = i >= primaryCount;
       const column = oneRow || !secondary ? i : i - primaryCount;
       const row = oneRow || !secondary ? 0 : 1;
+      const left = strip.x + Math.round((strip.w - rowWidth(row)) / 2);
       const view = tab(key, active, 6);
       view.scale.set(scale);
       // The whole cell, gap included, takes the tap.
       view.hitArea = new Rectangle(-inset, -inset, TAB_STEP, TAB_STEP);
-      tabs.addChild(at(view, strip.x + (column * TAB_STEP + inset) * scale + (oneRow && secondary ? TIER_GAP : 0),
+      tabs.addChild(at(view, left + (column * TAB_STEP + inset) * scale + (oneRow && secondary ? TIER_GAP : 0),
         strip.y + (row * TAB_STEP + inset) * scale));
     });
   };
