@@ -573,7 +573,7 @@ const buildItems = (tables, recipes, icons, itemEffectById, warnings) => {
   const classes = new Map();
   const nameFromRecipe = [];
   const unnamed = [];
-  let withoutIcon = 0;
+  const withoutIcon = [];
   for (const id of [...itemIds].sort((a, b) => a - b)) {
     const item = itemById.get(String(id));
     const sparse = sparseById.get(String(id));
@@ -582,7 +582,7 @@ const buildItems = (tables, recipes, icons, itemEffectById, warnings) => {
     }
     const icon = icons.get(toInt(item?.IconFileDataID) || gearIconByItem.get(String(id)) || 0) ?? null;
     if (!icon) {
-      withoutIcon += 1;
+      withoutIcon.push(id);
     }
     let name = sparse?.Display_lang;
     if (!name) {
@@ -764,6 +764,13 @@ const report = ({
   log(`\nlearnable level from a recipe item ${fromOrigin("item")}, a trainer ${fromOrigin("trainer")}, `
     + `the profession ${fromOrigin("profession")}, by hand ${fromOrigin("hand")}, unknown ${unknownLearn.length}:`);
   log(`  ${listOrNone(unknownLearn.map((recipe) => `${recipe.profession}:${recipe.name}`))}`);
+  // The detail pane hides the "yellow, grey" line when trivialLow is 0.
+  const noRange = recipes.filter((recipe) => !(recipe.trivialLow > 0 && recipe.trivialHigh >= recipe.trivialLow));
+  log(`recipes without a yellow to grey range ${noRange.length}: `
+    + `${listOrNone(noRange.map((recipe) => `${recipe.profession}:${recipe.name}`))}`);
+  const unnamedCategories = output.flatMap((profession) => profession.categories
+    .filter((category) => category.name === "Other").map((category) => `${profession.key}:${category.id}`));
+  log(`categories without a TradeSkillCategory name, shown as "Other": ${listOrNone(unnamedCategories)}`);
   log(`\nrecipes taught by an item ${fromItems}, by a trainer or with the profession ${recipes.length - fromItems}`);
   const unsourced = recipes.filter((recipe) => recipe.source === "item"
     && !recipeSources.byRecipe.has(recipeKeyOf(recipe)));
@@ -774,6 +781,9 @@ const report = ({
   log(`  dropped ${drops.length}: by a named mob ${countDrops((drop) => drop.npc)} (no chance known `
     + `${countDrops((drop) => drop.npc && !drop.chance)}), world ${countDrops((drop) => drop.world)}, `
     + `by objects or containers only ${countDrops((drop) => !drop.npc && !drop.world)}`);
+  const zoneless = [...recipeSources.byRecipe].filter(([, source]) => source.drop?.npc && !source.drop.zone);
+  log(`  dropped by a named mob with no zone ${zoneless.length}: `
+    + `${listOrNone(zoneless.map(([key, source]) => `${key} ${source.drop.npc}`))}`);
   log(`  recipe vendor zones without an AreaTable name, skipped: ${listOrNone([...recipeSources.unnamedZones])}`);
   log(`  recipe vendors missing from the NPC table: ${listOrNone([...recipeSources.unknownNpcs])}`);
   const undescribed = recipes.filter((recipe) => !items[recipe.item]?.use).map((recipe) => recipe.name);
@@ -781,7 +791,8 @@ const report = ({
     + `recipes whose item has none: ${undescribed.length}`);
   log(`  ${listOrNone(undescribed)}`);
   log(`\nallow-listed items no kept recipe uses, left out: ${listOrNone(unusedAllowed)}`);
-  log(`\nrecipes ${recipes.length}, items ${itemIds.size}, items without icon ${withoutIcon}`);
+  log(`\nrecipes ${recipes.length}, items ${itemIds.size}, items without icon ${withoutIcon.length}: `
+    + `${named(withoutIcon)}`);
 
   // Validation of the gatherable assumptions against the live data.
   const created = new Set(recipes.filter((recipe) => recipe.item).map((recipe) => recipe.item));
