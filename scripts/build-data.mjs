@@ -7,7 +7,7 @@ import readline from "node:readline";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
-  CLOTH_KEY, SPELL_EFFECT_LEARN_SPELL, classifyGatherables, locateItems, parseCsv, readQuestieObjects,
+  SPELL_EFFECT_LEARN_SPELL, classifyGatherables, locateItems, parseCsv, readQuestieObjects,
   spellsTaughtByItems, toInt, zoneNamesByCount,
 } from "./data-lib.mjs";
 
@@ -32,21 +32,14 @@ const ROOT = path.resolve(import.meta.dirname, "..");
 const CACHE_DIR = path.join(ROOT, ".cache");
 const OUT_DIR = path.join(ROOT, "src", "data");
 
-// The 13 profession skill lines, in display order. Matched by name among top-level SkillLines.
+// The professions the app covers, in tab order. Nothing else is read from the client tables. `tier` sets the two
+// primary professions apart from the three secondary ones. Matched by name among top-level SkillLines.
 const PROFESSIONS = [
-  { key: "alchemy", name: "Alchemy" },
-  { key: "blacksmithing", name: "Blacksmithing" },
-  { key: "enchanting", name: "Enchanting" },
-  { key: "engineering", name: "Engineering" },
-  { key: "leatherworking", name: "Leatherworking" },
-  { key: "tailoring", name: "Tailoring" },
-  { key: "herbalism", name: "Herbalism" },
-  { key: "mining", name: "Mining" },
-  { key: "skinning", name: "Skinning" },
-  { key: "cooking", name: "Cooking" },
-  { key: "first-aid", name: "First Aid" },
-  { key: "fishing", name: "Fishing" },
-  { key: "poisons", name: "Poisons" },
+  { key: "alchemy", name: "Alchemy", tier: "primary" },
+  { key: "herbalism", name: "Herbalism", tier: "primary" },
+  { key: "cooking", name: "Cooking", tier: "secondary" },
+  { key: "fishing", name: "Fishing", tier: "secondary" },
+  { key: "first-aid", name: "First Aid", tier: "secondary" },
 ];
 // SkillLine.CategoryID: 11 is a main profession, 9 a secondary one (the others are weapons, languages, riding...).
 const PROFESSION_CATEGORIES = new Set([9, 11]);
@@ -88,6 +81,11 @@ const FISHING_ITEMS = [
   13889, // Raw Whitescale Salmon
   21071, // Raw Sagefish
   21153, // Raw Greater Sagefish
+  // Added in the specialize work: used by Cooking but missing here. Stage 3 checks them against fishing loot.
+  6522, // Deviate Fish
+  13755, // Raw Winter Squid
+  13890, // Raw Plated Armorfish
+  13893, // Large Raw Mightfish
 ];
 // Herb-bag items that Herbalism gathers but are not class 7 subclass 9 (seeds are class 15, Morrowgrain class 12).
 const HERBALISM_ITEMS = [
@@ -96,33 +94,7 @@ const HERBALISM_ITEMS = [
   17034, // Maple Seed
   17035, // Stranglethorn Seed
 ];
-// Leathers that skinning yields directly, although Leatherworking can also make them from scraps or lesser leather.
-const SKINNING_ITEMS = [
-  2318, // Light Leather
-  2319, // Medium Leather
-  4234, // Heavy Leather
-  4304, // Thick Leather
-  8170, // Rugged Leather
-];
-// Gems that drop from mining veins in Classic. They are class 7 subclass 11 ("other"), so Mining can't be inferred.
-const MINING_GEMS = [
-  774, // Malachite
-  818, // Tigerseye
-  1206, // Moss Agate
-  1210, // Shadowgem
-  1529, // Jade
-  1705, // Lesser Moonstone
-  3864, // Citrine
-  7909, // Aquamarine
-  7910, // Star Ruby
-  12361, // Blue Sapphire
-  12363, // Arcane Crystal
-  12364, // Huge Emerald
-  12799, // Large Opal
-  12800, // Azerothian Diamond
-];
-// ItemSparse.BagFamily bits that name the profession bag an item belongs in.
-// Which item each Herbalism and Mining node yields, hand-checked. A rule matches objects by exact name (`node`: the
+// Which item each Herbalism node yields, hand-checked. A rule matches objects by exact name (`node`: the
 // same node has several object ids, one per spawn group or zone) or by object id (`ids`, when only some objects of a
 // name yield it). Yields follow QuestieDB's item `objectDrops` (the loot tables), limited to these node objects:
 // chests and crates that also hold the same items are not nodes.
@@ -163,48 +135,15 @@ const LOCATION_RULES = [
   { ids: [142140], items: [8153] }, // Wildvine: Purple Lotus node (Questie id 142140)
   // Bloodvine: the Zul'Gurub Sungrass, Purple Lotus, Silversage, Sansam and Dreamfoil nodes
   { ids: [180164, 180165, 180166, 180167, 180168], items: [19726] },
-  // Ore veins: ore, its stone and the gems (Questie lists Shadowgem for Copper, Tin and Silver, and so on).
-  // Copper Ore, Rough Stone, Malachite, Tigerseye, Shadowgem
-  { node: "Copper Vein", items: [2770, 2835, 774, 818, 1210] },
-  // Forever-only low yield vein: Copper Ore by its name, no stone or gem data
-  { node: "Poor Copper Vein", items: [2770] },
-  // Tin Ore, Coarse Stone, Moss Agate, Shadowgem, Jade, Lesser Moonstone
-  { node: "Tin Vein", items: [2771, 2836, 1206, 1210, 1529, 1705] },
-  { node: "Silver Vein", items: [2775, 1206, 1210, 1705] }, // Silver Ore, Moss Agate, Shadowgem, Lesser Moonstone
-  { node: "Ooze Covered Silver Vein", items: [2775, 1206, 1210, 1705] }, // same as Silver Vein
-  { node: "Gold Vein", items: [2776, 1529, 1705, 3864] }, // Gold Ore, Jade, Lesser Moonstone, Citrine
-  { node: "Ooze Covered Gold Vein", items: [2776, 1529, 1705, 3864] }, // same as Gold Vein
-  // Iron Ore, Heavy Stone, Jade, Lesser Moonstone, Citrine, Aquamarine
-  { node: "Iron Deposit", items: [2772, 2838, 1529, 1705, 3864, 7909] },
-  // Mithril Ore, Solid Stone, Citrine, Aquamarine, Star Ruby
-  { node: "Mithril Deposit", items: [3858, 7912, 3864, 7909, 7910] },
-  { node: "Ooze Covered Mithril Deposit", items: [3858, 7912, 3864, 7909, 7910] }, // same as Mithril Deposit
-  { node: "Truesilver Deposit", items: [7911, 3864, 7909, 7910] }, // Truesilver Ore, Citrine, Aquamarine, Star Ruby
-  { node: "Ooze Covered Truesilver Deposit", items: [7911, 3864, 7909, 7910] }, // same as Truesilver Deposit
-  // Thorium veins all yield Thorium Ore, Dense Stone and the high gems.
-  // Thorium Ore, Dense Stone, Star Ruby, Blue Sapphire, Arcane Crystal, Huge Emerald, Large Opal, Azerothian Diamond
-  { node: "Small Thorium Vein", items: [10620, 12365, 7910, 12361, 12363, 12364, 12799, 12800] },
-  // same as Small Thorium Vein
-  { node: "Rich Thorium Vein", items: [10620, 12365, 7910, 12361, 12363, 12364, 12799, 12800] },
-  { node: "Ooze Covered Thorium Vein", items: [10620, 12365, 7910, 12361, 12363, 12364, 12799, 12800] }, // same
-  { node: "Ooze Covered Rich Thorium Vein", items: [10620, 12365, 7910, 12361, 12363, 12364, 12799, 12800] }, // same
-  { node: "Hakkari Thorium Vein", items: [10620, 12365, 7910, 12361, 12363, 12364, 12799, 12800] }, // same (Zul'Gurub)
-  { node: "Dark Iron Deposit", items: [11370] }, // Dark Iron Ore
-  { node: "Heavy Thorium Vein", items: [248815] }, // Heavy Thorium Ore (Forever-only, same name)
-  // Pyrite (Forever-only: fool's gold is pyrite; by name only, flagged for review)
-  { node: "Fool's Gold Vein", items: [249391] },
-  // Not mapped on purpose: Coal, Guardian Stone, Sulfuron Ingot, Elementium Ore, Elemental Flux (no node drops them),
-  // Bauxite, Pitchblende (no node known), Obsidian Shards (their chunks have no spawns), Cold Iron Deposit,
-  // Spectral Iron Deposit and Starsilver Vein (Forever-only, yield unknown), Deathweed, Morrowgrain, the seeds,
-  // Death Lotus, Frilled Lichen, Rosecap, Stranglevine (no node known).
+  // Not mapped on purpose: Deathweed, Morrowgrain, the seeds, Death Lotus, Frilled Lichen, Rosecap and Stranglevine (no
+  // node known).
 ];
-// Locations are kept only for these professions: the UI shows a "Found in" line for herbs and ores.
-const LOCATION_PROFESSIONS = ["herbalism", "mining"];
+// Locations are kept only for these professions: the UI shows a "Found in" line for herbs.
+const LOCATION_PROFESSIONS = ["herbalism"];
 
+// ItemSparse.BagFamily bits that name the profession bag an item belongs in.
 const BAG_FAMILY_CHECKS = [
-  { bit: 8, label: "leatherworking bag", profession: "skinning" },
   { bit: 32, label: "herb bag", profession: "herbalism" },
-  { bit: 1024, label: "mining bag", profession: "mining" },
 ];
 
 const log = (...args) => console.log(...args);
@@ -285,13 +224,13 @@ const main = async () => {
   const icons = await loadIconNames();
 
   // Professions: top-level skill lines (not the per-tier children) with a profession name and category.
-  const professions = PROFESSIONS.map(({ key, name }) => {
+  const professions = PROFESSIONS.map(({ key, name, tier }) => {
     const matches = skillLines.filter((line) => line.DisplayName_lang === name
       && toInt(line.ParentSkillLineID) === 0 && PROFESSION_CATEGORIES.has(toInt(line.CategoryID)));
     if (matches.length !== 1) {
       throw new Error(`expected one top-level skill line named ${name}, found ${matches.length}`);
     }
-    return { key, name, skillLine: toInt(matches[0].ID) };
+    return { key, name, tier, skillLine: toInt(matches[0].ID) };
   });
   const professionBySkillLine = new Map(professions.map((profession) => [profession.skillLine, profession]));
 
@@ -442,13 +381,16 @@ const main = async () => {
   }
 
   // Gatherables per profession.
-  const allowLists = {
-    fishing: FISHING_ITEMS, mining: MINING_GEMS, herbalism: HERBALISM_ITEMS, skinning: SKINNING_ITEMS,
-  };
+  const allowLists = { fishing: FISHING_ITEMS, herbalism: HERBALISM_ITEMS };
   const gatherables = classifyGatherables(classes, recipes, allowLists);
+  // An id the client doesn't know is a typo: fail. One that no kept recipe uses is left out of the data and reported.
+  const unusedAllowed = [];
   for (const id of Object.values(allowLists).flat()) {
-    if (!recipes.some((recipe) => recipe.reagents.some((reagent) => reagent.item === id))) {
-      throw new Error(`allow-listed item ${id} is not a reagent in the data`);
+    if (!itemById.has(String(id))) {
+      throw new Error(`allow-listed item ${id} is not in the client's Item table`);
+    }
+    if (!itemIds.has(id)) {
+      unusedAllowed.push(id);
     }
   }
 
@@ -463,24 +405,27 @@ const main = async () => {
     return { ...profession, categories, gatherables: gatherables[profession.key] ?? [] };
   });
 
-  // Cloth is no SkillLine: a synthetic entry, listed like a gathering profession.
-  output.push({
-    key: CLOTH_KEY, name: "Cloth", skillLine: null, synthetic: true, categories: [],
-    gatherables: gatherables[CLOTH_KEY] ?? [],
-  });
-
-  // Known locations: zone names per Herbalism and Mining gatherable, most spawns first.
+  // Known locations: zone names per Herbalism gatherable, most spawns first.
   const [areaRows, objectText, deltaText] = await Promise.all([
     downloadTable("AreaTable"), ...QUESTIE_FILES.map(downloadQuestieFile),
   ]);
   const locatable = new Set(LOCATION_PROFESSIONS.flatMap((key) => gatherables[key] ?? []));
-  for (const item of LOCATION_RULES.flatMap((rule) => rule.items)) {
-    if (!locatable.has(item)) {
-      throw new Error(`location rule item ${item} is not a Herbalism or Mining gatherable in the data`);
-    }
-  }
+  // A rule item the client doesn't know is a typo: fail. One that is no kept Herbalism gatherable is left out.
+  const skippedRuleItems = new Set();
+  const rules = LOCATION_RULES.map((rule) => ({
+    ...rule,
+    items: rule.items.filter((item) => {
+      if (!itemById.has(String(item))) {
+        throw new Error(`location rule item ${item} is not in the client's Item table`);
+      }
+      if (!locatable.has(item)) {
+        skippedRuleItems.add(item);
+      }
+      return locatable.has(item);
+    }),
+  })).filter((rule) => rule.items.length > 0);
   const areaNames = new Map(areaRows.map((row) => [toInt(row.ID), row.AreaName_lang]));
-  const { located, unmatched } = locateItems(readQuestieObjects(objectText, deltaText), LOCATION_RULES);
+  const { located, unmatched } = locateItems(readQuestieObjects(objectText, deltaText), rules);
   const locationItems = {};
   const unnamedZones = new Set();
   for (const item of [...located.keys()].sort((a, b) => a - b)) {
@@ -516,16 +461,18 @@ const main = async () => {
     const gatherableCount = String(profession.gatherables.length).padStart(11);
     log(`${profession.name.padEnd(16)} ${String(count).padStart(7)}  ${gatherableCount}`);
   }
-  log(`\nlocations for ${Object.keys(locationItems).length} of ${locatable.size} Herbalism and Mining gatherables`);
+  log(`\nlocations for ${Object.keys(locationItems).length} of ${locatable.size} Herbalism gatherables`);
   for (const key of LOCATION_PROFESSIONS) {
     const lacking = (gatherables[key] ?? []).filter((id) => !locationItems[id]);
     log(`  ${key} without locations: ${lacking.map((id) => `${id} ${items[id].name}`).join(", ") || "none"}`);
   }
+  log(`  rule items that are no kept Herbalism gatherable, left out: ${[...skippedRuleItems].join(", ") || "none"}`);
   const unmatchedNames = unmatched.map((rule) => rule.node ?? rule.ids.join("/")).join(", ");
   log(`  rules matching no object with spawns: ${unmatchedNames || "none"}`);
   log(`  spawn zones without an AreaTable name, skipped: ${[...unnamedZones].join(", ") || "none"}`);
   const fromItems = recipes.filter((recipe) => recipe.source === "item").length;
   log(`\nrecipes taught by an item ${fromItems}, by a trainer or with the profession ${recipes.length - fromItems}`);
+  log(`\nallow-listed items no kept recipe uses, left out: ${unusedAllowed.join(", ") || "none"}`);
   log(`\nrecipes ${recipes.length}, items ${itemIds.size}, items without icon ${withoutIcon}`);
 
   // Validation of the gatherable assumptions against the live data.
@@ -554,7 +501,7 @@ const main = async () => {
       log(`  ${id} ${items[id].name}`);
     }
   }
-  log("\nuncrafted reagents assigned to no gatherer, class 7 and herb/ore/hide-like names:");
+  log("\nuncrafted reagents assigned to no gatherer, class 7, 12 or 15:");
   for (const id of [...itemIds].filter((itemId) => !created.has(itemId) && !gathered.has(itemId))) {
     const { classId, subclassId } = classes.get(id);
     if (classId === 7 || classId === 15 || classId === 12) {

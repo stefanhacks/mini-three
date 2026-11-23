@@ -1,4 +1,4 @@
-import { CLOTH_KEY, type Item, type Profession, type Recipe } from "../../data";
+import type { Item, Profession, Recipe } from "../../data";
 
 export type ListRow =
   | { kind: "header"; id: string; label: string; count: number; collapsed: boolean }
@@ -69,7 +69,7 @@ export const buildRows = (
     .filter((itemId) => !searching || matches(sources.itemOf(itemId).name))
     .sort((a, b) => sources.itemOf(a).name.localeCompare(sources.itemOf(b).name))
     .map((itemId): ListRow => ({ kind: "item", key: `item:${itemId}`, itemId }));
-  section(`${profession.key}:gathered`, profession.key === CLOTH_KEY ? "Cloth" : "Gathered", gathered);
+  section(`${profession.key}:gathered`, "Gathered", gathered);
 
   const byCategory = new Map<number, Recipe[]>();
   sources.recipes.forEach((recipe) => {

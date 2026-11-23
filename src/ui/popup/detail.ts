@@ -1,7 +1,7 @@
 import {
   Container, type FederatedPointerEvent, type FederatedWheelEvent, Graphics, Rectangle, type Text, type Ticker,
 } from "pixi.js";
-import { CLOTH_KEY, type Recipe } from "../../data";
+import type { Recipe } from "../../data";
 import {
   PROFESSION_ICONS, gathererOf, itemOf, locationsOf, professionByKey, recipeKey, recipesUsingItem,
 } from "../../data/model";
@@ -264,7 +264,7 @@ export const createDetailPane = (
   const showItem = (itemId: number, text: string, editHeight: number | null): number => {
     const item = itemOf(itemId);
     const gatherer = gathererOf(itemId);
-    const subtitle = !gatherer ? "Reagent" : gatherer.key === CLOTH_KEY ? "Cloth" : `Gathered with ${gatherer.name}`;
+    const subtitle = gatherer ? `Gathered with ${gatherer.name}` : "Reagent";
     const underDivider = heading(item.icon, item.quality, item.name, qualityColor(item.quality), subtitle, 0);
 
     const users = (recipesUsingItem.get(itemId) ?? []).slice()

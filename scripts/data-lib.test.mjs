@@ -33,13 +33,10 @@ describe("classifyGatherables", () => {
   const item = (classId, subclassId) => ({ classId, subclassId });
   const items = new Map([
     [1, item(7, 9)], // herb
-    [2, item(7, 7)], // metal and stone
-    [3, item(7, 6)], // leather
-    [4, item(7, 5)], // cloth
-    [5, item(7, 7)], // bar, created by a recipe
-    [6, item(7, 8)], // meat or fish: not classified
-    [7, item(2, 9)], // not trade goods
-    [8, item(7, 5)], // bolt of cloth, created by a recipe
+    [2, item(7, 7)], // metal and stone: no gatherer is known for it any more
+    [3, item(9, 9)], // herb-like subclass, wrong class
+    [4, item(7, 9)], // herb, created by a recipe
+    [5, item(7, 8)], // meat or fish: not classified
   ]);
   const recipe = (profession, reagentIds, created) => ({
     profession,
@@ -47,26 +44,20 @@ describe("classifyGatherables", () => {
     reagents: reagentIds.map((id) => ({ item: id })),
   });
 
-  it("assigns uncrafted reagents to the profession that collects them", () => {
-    const recipes = [recipe("alchemy", [1, 6, 7]), recipe("blacksmithing", [2, 3], 99)];
-    expect(classifyGatherables(items, recipes)).toEqual({ herbalism: [1], mining: [2], skinning: [3] });
-  });
-
-  it("puts cloth under its own group whichever profession uses it, once", () => {
-    const recipes = [recipe("tailoring", [4, 4]), recipe("first-aid", [4]), recipe("tailoring", [4])];
-    expect(classifyGatherables(items, recipes)).toEqual({ cloth: [4] });
+  it("assigns uncrafted herbs to Herbalism, once, and nothing else", () => {
+    const recipes = [recipe("alchemy", [1, 1, 2, 3, 5]), recipe("cooking", [1])];
+    expect(classifyGatherables(items, recipes)).toEqual({ herbalism: [1] });
   });
 
   it("leaves out anything a recipe creates, even when another recipe uses it", () => {
-    const recipes = [recipe("mining", [2], 5), recipe("blacksmithing", [5]), recipe("tailoring", [8]),
-      recipe("tailoring", [4], 8)];
-    expect(classifyGatherables(items, recipes)).toEqual({ mining: [2], cloth: [4] });
+    const recipes = [recipe("alchemy", [], 4), recipe("alchemy", [4, 1])];
+    expect(classifyGatherables(items, recipes)).toEqual({ herbalism: [1] });
   });
 
   it("assigns allow-listed ids whatever their class, even ones a recipe also creates", () => {
-    const recipes = [recipe("cooking", [6, 7, 5]), recipe("mining", [2], 5)];
-    expect(classifyGatherables(items, recipes, { fishing: [6], herbalism: [7, 5] }))
-      .toEqual({ fishing: [6], herbalism: [5, 7], mining: [2] });
+    const recipes = [recipe("cooking", [5, 2, 4]), recipe("alchemy", [1], 4)];
+    expect(classifyGatherables(items, recipes, { fishing: [5], herbalism: [2, 4] }))
+      .toEqual({ fishing: [5], herbalism: [1, 2, 4] });
   });
 
   it("ignores reagents missing from the item table", () => {

@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { type SavedData, emptySaved, parse, serialize } from "./storage";
 
-const valid = new Set(["alchemy", "mining", "cloth"]);
+const valid = new Set(["alchemy", "herbalism", "cooking"]);
 
 const saved: SavedData = {
-  chosen: ["alchemy", "mining"],
-  active: "mining",
-  collapsed: ["mining:gathered"],
-  known: ["alchemy:101", "mining:7"],
+  chosen: ["alchemy", "herbalism"],
+  active: "herbalism",
+  collapsed: ["herbalism:gathered"],
+  known: ["alchemy:101", "herbalism:7"],
   knownOnly: true,
   notes: { "alchemy:101": "buy vials", "item:2770": "Elwynn mines" },
 };
@@ -36,7 +36,8 @@ describe("saved state", () => {
       known: ["alchemy:1", "basketweaving:2", "nonsense", 9],
       knownOnly: "yes",
       notes: {
-        "alchemy:1": "ok", "basketweaving:2": "gone", "item:5": "kept", "item:x": "bad", "mining:3": 4, "cloth:9": "",
+        "alchemy:1": "ok", "basketweaving:2": "gone", "item:5": "kept", "item:x": "bad", "herbalism:3": 4,
+        "cooking:9": "",
       },
     });
     expect(parse(raw, valid)).toEqual({
