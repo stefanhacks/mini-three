@@ -22,6 +22,8 @@ import { SEARCH_TEXT_SIZE, type SearchField } from "./searchField";
 export const WINDOW_WIDTH = 720;
 export const WINDOW_HEIGHT = 580;
 /** Width the side tabs add to the right of the window. */
+/** The grey of the inactive secondary tabs' rims (`sideTab` in art/pieces.ts), used for the group dots. */
+const TAB_RIM_GREY = 0x5e5850;
 /** How far the desktop side tabs tuck under the window frame. */
 const TAB_TUCK = 4;
 export const TABS_WIDTH = 48 + TAB_GLOW * 2 - TAB_TUCK;
@@ -367,8 +369,8 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
       let x = strip.x + Math.round((strip.w - cells * strip.cell - gaps * gap) / 2);
       groups.forEach((keys, group) => {
         if (group > 0) {
-          // A small dot in the divider's gold marks the gap between groups.
-          const dot = new Graphics().circle(0, 0, 2.5).fill({ color: PALETTE.gold.base, alpha: 0.7 });
+          // A small dot in the grey of the secondary tabs' rims marks the gap between groups (gold means primary).
+          const dot = new Graphics().circle(0, 0, 2.5).fill(TAB_RIM_GREY);
           tabs.addChild(at(dot, Math.round(x + gap / 2), strip.y + (row + 0.5) * strip.cell));
           x += gap;
         }
