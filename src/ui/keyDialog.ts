@@ -49,7 +49,7 @@ export const createKeyDialog = (login: (key: string) => Promise<LoginResult>): K
   });
 
   const form = document.createElement("form");
-  form.setAttribute("aria-label", "Owner login");
+  form.setAttribute("aria-label", "Teishu login");
   Object.assign(form.style, {
     display: "flex",
     flexDirection: "column",
@@ -63,7 +63,7 @@ export const createKeyDialog = (login: (key: string) => Promise<LoginResult>): K
   });
 
   const title = document.createElement("div");
-  title.textContent = "Owner key";
+  title.textContent = "Teishu Key";
   Object.assign(title.style, { font: `18px "${DISPLAY_FONT}", serif`, color: hex(PALETTE.text.header) });
 
   // Password managers file a key under a username: a fixed, hidden one.
@@ -78,7 +78,7 @@ export const createKeyDialog = (login: (key: string) => Promise<LoginResult>): K
   input.type = "password";
   input.name = "password";
   input.autocomplete = "current-password";
-  input.setAttribute("aria-label", "Owner key");
+  input.setAttribute("aria-label", "Teishu Key");
   Object.assign(input.style, {
     boxSizing: "border-box",
     width: "100%",

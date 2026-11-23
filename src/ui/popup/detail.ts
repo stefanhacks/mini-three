@@ -173,7 +173,7 @@ export const createDetailPane = (
   };
 
   /**
-   * "Notes" label, then the note as wrapped text. While editing (`editHeight` set) Save and Cancel join the label
+   * "Zu's Notes" label, then the note as wrapped text. While editing (`editHeight` set) Save and Cancel join the label
    * and the text gives way to an empty block of that height, where the textarea sits. Visitors only see it when the
    * entry has a note. Returns the y under the block (`top` when it is left out).
    */
@@ -182,11 +182,11 @@ export const createDetailPane = (
       return top;
     }
     const labelY = top + 14;
-    body.addChild(label("Notes:", TEXT_STYLES.label, PAD, labelY));
+    body.addChild(label("Zu's Notes:", TEXT_STYLES.label, PAD, labelY));
     const buttonY = labelY - EDIT_HEIGHT / 2;
     const textY = labelY + NOTE_LABEL_GAP - 6;
     if (editHeight !== null) {
-      // Save and Cancel stay on the "Notes:" line, next to the textarea: on a phone the keyboard covers the corner.
+      // Save and Cancel stay on the label's line, next to the textarea: on a phone the keyboard covers the corner.
       const save = button(kit, "Save", EDIT_WIDTH, handlers.onSaveNote, EDIT_HEIGHT);
       const cancel = button(kit, "Cancel", EDIT_WIDTH, handlers.onCancelNote, EDIT_HEIGHT);
       body.addChild(at(save.view, PAD + inner - EDIT_WIDTH * 2 - EDIT_GAP, buttonY));
