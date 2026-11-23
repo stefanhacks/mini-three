@@ -86,7 +86,8 @@ export const createScrollList = (
     const header = createNineSlice(kit.pieces.header, rowWidth, headerH);
     const headerHover = createNineSlice(kit.pieces.headerHover, rowWidth, headerH);
     const headerText = label("", TEXT_STYLES.header, 8, headerH / 2);
-    const toggle = iconSprite(kit.icons.minus, rowWidth - 10, headerH / 2, PALETTE.text.header);
+    // Centred in a header-tall square at the right end, so its right gap matches the top and bottom ones.
+    const toggle = iconSprite(kit.icons.minus, rowWidth - headerH / 2, headerH / 2, PALETTE.text.header);
     const hover = createNineSlice(kit.pieces.rowHover, rowWidth, rowH - 1);
     const selected = createNineSlice(kit.pieces.rowSelected, rowWidth, rowH - 1);
     const text = label("", TEXT_STYLES.row, 12, rowH / 2);
