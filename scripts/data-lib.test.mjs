@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  classifyGatherables, locateItems, parseCsv, parseCsvRows, parseLua, readQuestieObjects, spellsTaughtByItems,
-  zoneNamesByCount,
+  classifyGatherables, locateItems, parseCsv, parseCsvRows, parseLua, readQuestieObjects, readQuestieTable,
+  recipeItemSources, spellsTaughtByItems, zoneNamesByCount,
 } from "./data-lib.mjs";
 
 describe("parseCsvRows", () => {
@@ -97,6 +97,69 @@ describe("readQuestieObjects", () => {
     expect(objects.get(1)).toEqual({ name: "Peacebloom", zones: new Map([[5, 1]]) });
     expect(objects.get(2).zones.size).toBe(0);
     expect(objects.get(3)).toEqual({ name: "Gold Vein", zones: new Map([[9, 2]]) });
+  });
+});
+
+describe("readQuestieTable", () => {
+  const raw = "x = [[return {\n[1] = {'Recipe: Stew',{7},nil,{2,3}},\n[2] = {'Recipe: Pie'},\n}]]\n";
+  const delta = "return {\n [1] = { [itemKeys.vendors_add] = {4}, [itemKeys.npcDrops] = nil },\n"
+    + " [5] = { [itemKeys.name] = \"Recipe: Jam\", [itemKeys.vendors] = {6} },\n"
+    + " [6] = { [questKeys.requiredRaces] = raceIDs.ORC + raceIDs.TROLL },\n}\nend";
+
+  it("names positional fields, applies delta replacements and _add appends, and adds new entries", () => {
+    const items = readQuestieTable(raw, delta, "item", ["name", "npcDrops", "objectDrops", "vendors"]);
+    expect(items.get(1)).toMatchObject({ name: "Recipe: Stew", npcDrops: null, objectDrops: null });
+    expect(items.get(1).vendors.list).toEqual([2, 3, 4]);
+    expect(items.get(2).vendors).toBeNull();
+    expect(items.get(5).name).toBe("Recipe: Jam");
+    expect(items.get(5).vendors.list).toEqual([6]);
+  });
+
+  it("parses sums of names without evaluating them", () => {
+    expect(parseLua("{a.B + c.D}").list[0]).toEqual({ sum: [{ ref: "a.B" }, { ref: "c.D" }] });
+  });
+});
+
+describe("recipeItemSources", () => {
+  const list = (...values) => ({ list: values, map: new Map() });
+  const spawns = (...zones) => ({ list: [], map: new Map(zones.map((zone) => [zone, list()])) });
+  const zones = new Map([[1, "Orgrimmar"], [2, "Durotar"], [3, "Darnassus"], [4, "Tanaris"], [5, "Mulgore"]]);
+  const capitals = new Map([["Orgrimmar", "Durotar"], ["Darnassus", "Teldrassil"]]);
+  const npcs = new Map([
+    [10, { spawns: spawns(1), friendlyToFaction: "H" }],
+    [11, { spawns: spawns(2), friendlyToFaction: "H" }],
+    [12, { spawns: spawns(3), friendlyToFaction: "A" }],
+    [13, { spawns: spawns(4, 99), friendlyToFaction: "AH" }],
+    [14, { spawns: null, zoneID: 5, friendlyToFaction: null }],
+    [15, { spawns: null, friendlyToFaction: "A" }],
+  ]);
+  const quests = new Map([[50, { startedBy: list(list(15)) }], [51, { startedBy: list(null, list(7)) }]]);
+  const item = (fields) => ({ vendors: null, questRewards: null, npcDrops: null, objectDrops: null,
+    itemDrops: null, ...fields });
+  const items = new Map([
+    [100, item({ vendors: list(10, 12) })],
+    [101, item({ vendors: list(10, 11), questRewards: list(50, 51) })],
+    [102, item({ vendors: list(13, 14, 77), objectDrops: list(8) })],
+    [103, item({})],
+  ]);
+  const sources = (itemIds) => recipeItemSources(new Map([["r", itemIds]]), { items, npcs, quests },
+    (zone) => zones.get(zone), capitals);
+
+  it("lists vendor zones per side and keeps a capital unless its own zone also sells it", () => {
+    expect(sources([100]).byRecipe.get("r")).toEqual({ H: ["Orgrimmar"], A: ["Darnassus"] });
+    expect(sources([101]).byRecipe.get("r")).toEqual({ H: ["Durotar"], A: ["Quest"], N: ["Quest"] });
+  });
+
+  it("puts hostile-to-both and unflagged vendors on the neutral side, falling back to the NPC's zone", () => {
+    const result = sources([102]);
+    expect(result.byRecipe.get("r")).toEqual({ N: ["Mulgore", "Tanaris"], drop: true });
+    expect([...result.unnamedZones]).toEqual([99]);
+    expect([...result.unknownNpcs]).toEqual([77]);
+  });
+
+  it("merges every item of a recipe and leaves out recipes with no known source", () => {
+    expect(sources([100, 103, 404]).byRecipe.get("r")).toEqual({ H: ["Orgrimmar"], A: ["Darnassus"] });
+    expect(sources([103, 404]).byRecipe.has("r")).toBe(false);
   });
 });
 

@@ -3,7 +3,7 @@ import type { AppState } from "../../app/store";
 import type { Recipe } from "../../data";
 import { itemKey } from "../../data/keys";
 import {
-  PROFESSION_ICONS, gathererOf, itemOf, locationsOf, professionByKey, recipeKey, recipesUsingItem,
+  PROFESSION_ICONS, gathererOf, itemOf, learnedFrom, locationsOf, professionByKey, recipeKey, recipesUsingItem,
 } from "../../data/model";
 import { type ArtKit, PALETTE, QUALITY_COLORS, TEXT_STYLES, createStoneOverlay } from "../art";
 import {
@@ -247,12 +247,19 @@ export const createDetailPane = (
     });
   };
 
-  /** "Learned from" and the reagents grid. Returns the y under the grid. */
+  /**
+   * "Learned from" (wrapped beside its label: a recipe item's vendor zones can take a few lines) and the reagents
+   * grid. Returns the y under the grid.
+   */
   const recipeSource = (recipe: Recipe, top: number): number => {
     const sourceLabel = label("Learned from:", TEXT_STYLES.label, PAD, top);
-    body.addChild(sourceLabel, label(recipe.source === "item" ? "Recipe item" : "Trainer", TEXT_STYLES.body,
-      PAD + sourceLabel.width + 6, top));
-    const gridTop = top + 14 + SECTION_GAP;
+    const sourceX = PAD + sourceLabel.width + 6;
+    // Top-anchored so extra lines grow downwards; its first line stays level with the label.
+    const lineHeight = Number(TEXT_STYLES.body.lineHeight);
+    const source = wrapped(label(learnedFrom(recipe), TEXT_STYLES.body, sourceX, top - lineHeight / 2, 0, 0),
+      PAD + inner - sourceX);
+    body.addChild(sourceLabel, source);
+    const gridTop = top + 14 + (source.height - lineHeight) + SECTION_GAP;
     body.addChild(label("Reagents:", TEXT_STYLES.label, PAD, gridTop));
     const columns = Math.max(2, Math.floor(inner / REAGENT_COLUMN));
     const column = Math.floor(inner / columns);

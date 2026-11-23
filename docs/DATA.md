@@ -20,7 +20,7 @@ npm run check
 |---|---|---|
 | WoW: Forever client tables, from [wago.tools](https://wago.tools) | `BUILD` | recipes, reagents, items, categories, spell text, skill requirements of recipe items |
 | Community listfile (wowdev/wow-listfile) | `LISTFILE_TAG` | icon names |
-| QuestieDB (GPLv3) | `QUESTIE_COMMIT` | zones where herb nodes and fishing pools spawn |
+| QuestieDB (GPLv3) | `QUESTIE_COMMIT` | zones where herb nodes and fishing pools spawn; where recipe items are sold (zone, side), and whether a quest rewards or something drops them |
 | CMaNGOS classic-db (GPLv3) | `CLASSICDB_COMMIT` | zones each fish is caught in, trainer skill levels |
 | Classic Era client, `SpellEffect` only | `ERA_BUILD` | which recipe each trainer "teaching" spell teaches |
 
@@ -39,6 +39,7 @@ The two GPLv3 sources are read at build time and reduced to facts. No file, row 
 - `learn` is the lowest skill a recipe item or trainer asks, or 1 for recipes that come with the profession. Where no source has it (Forever-only trainer recipes, Classic quest and event recipes), `LEARN_BY_HAND` holds levels read from each recipe's Wowhead page ("Skill" column of the recipe item or spell, not the created item), checked by the owner. Wowhead blocks automated access, so these are entered by hand; add one per recipe as `"<profession>:<spell id>": <level>` with the name in a comment. Still unknown stays unset and shows as `??`.
 - Herbs are the uncrafted reagents of item class 7, subclass 9, plus `HERBALISM_ITEMS`. Fish are exactly `FISHING_ITEMS`: the item tables can't tell fish from meat.
 - Herb zones come from `LOCATION_RULES` (which node yields which herb). Fish zones come from the fishing loot, then from pool spawns.
+- Recipe sources (`locations.json` `recipes`, shown as "Learned from: Recipe (H: …, A: …, N: …, Drop)"): for each recipe taught by an item, the zones its vendors spawn in, per side (the vendor's `friendlyToFaction`: H, A, or N for both or neither), then "Quest" on the side of the NPC that starts a quest rewarding it (N when no NPC starts it), and "Drop" when a creature, object or container drops it. A capital is listed by name unless its own zone (`CAPITAL_ZONES`) also sells it: then only the zone is. Recipes with none of these show plain "Recipe".
 - Every item with a "Use:" effect (potions, food, edible fish, camping items) carries its spell text as `use`, with its `$` tokens resolved by `scripts/descriptions.mjs`. A recipe shows its created item's.
 
 ## Reading the report
@@ -63,6 +64,8 @@ It then prints a report. These lines are **expected**, but read them for anythin
 - `herbalism without locations`, `fish without locations`: no source knows the place. A new entry here after an update may mean a rule needs a new node name.
 - `rule items that are no kept Herbalism gatherable` and `allow-listed items no kept recipe uses`: hand-written ids no kept recipe needs. Left out on purpose.
 - `rules matching no object with spawns`: should be `none`. A name here means a node was renamed in QuestieDB.
+- `with no known vendor, quest or drop N`: recipe items QuestieDB has no source for (57 today, mostly Forever-only). They show plain "Recipe". A big jump means a Questie file changed format or moved.
+- `recipe vendor zones without an AreaTable name`: `1585` today. `recipe vendors missing from the NPC table`: should be `none`.
 - `learnable level ... unknown N`: recipes with no `learn`. They stay and show `??`. Candidates for `LEARN_BY_HAND`. A big jump means a trainer or item source broke.
 - `items with a "Use:" text ...; recipes whose item has none`: transmutes, dyes, oils and a few more. Expected.
 - `reagents whose bag family disagrees`: should be empty.

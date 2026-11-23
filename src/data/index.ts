@@ -70,7 +70,8 @@ export const professions = professionsJson as unknown as Profession[];
 export const recipes = recipesJson as unknown as Recipe[];
 export const items = itemsJson as unknown as Record<string, Item>;
 
-// Where a Herbalism gatherable's nodes spawn, or where a fish is caught, in Forever. Derived facts, see `source`.
+// Where a Herbalism gatherable's nodes spawn, where a fish is caught, and where recipe items come from, in Forever.
+// Derived facts, see `source`.
 export interface Locations {
   // Credit line for the data source and what was kept from it.
   source: string;
@@ -78,6 +79,18 @@ export interface Locations {
   build: string;
   // Item id to English zone names, most likely first. Items without a known place have no entry.
   items: Record<string, string[]>;
+  // Recipe key (`<profession>:<spell id>`) of a recipe taught by an item to where that item comes from. Recipes with
+  // no known source have no entry.
+  recipes: Record<string, RecipeSource>;
+}
+
+// Per side (Horde, Alliance, neutral): the zones its vendors are in, sorted, then "Quest" when a quest of that side
+// rewards it. A capital is listed by its own name unless the zone around it also sells it. `drop`: something drops it.
+export interface RecipeSource {
+  H?: string[];
+  A?: string[];
+  N?: string[];
+  drop?: true;
 }
 
 export const locations = locationsJson as unknown as Locations;
