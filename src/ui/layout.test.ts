@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { keyboardShift, layoutMode, stripLayout } from "./layout";
+import { keyboardShift, layoutMode, needsUpright, stripLayout } from "./layout";
 
 const footprint = { width: 782, height: 596 };
 
@@ -51,5 +51,14 @@ describe("keyboardShift", () => {
 
   it("keeps the field's top visible when the band is shorter than the field", () => {
     expect(keyboardShift(200, 400, 0, 120, 8)).toBe(192);
+  });
+});
+
+describe("needsUpright", () => {
+  it("asks only sideways touch screens that are too short", () => {
+    expect(needsUpright(844, 340, true)).toBe(true);
+    expect(needsUpright(390, 664, true)).toBe(false);
+    expect(needsUpright(1180, 820, true)).toBe(false);
+    expect(needsUpright(900, 400, false)).toBe(false);
   });
 });

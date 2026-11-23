@@ -149,7 +149,13 @@ export const parseLua = (text) => {
       while (pos < text.length && /\s/.test(text[pos])) {
         pos += 1;
       }
-      if (text.startsWith("--", pos)) {
+      const block = /^--\[(=*)\[/.exec(text.slice(pos, pos + 16));
+      if (block) {
+        // Block comment --[[ ... ]] or --[==[ ... ]==]: skip to the matching close.
+        const close = `]${block[1]}]`;
+        const end = text.indexOf(close, pos + block[0].length);
+        pos = end === -1 ? text.length : end + close.length;
+      } else if (text.startsWith("--", pos)) {
         const end = text.indexOf("\n", pos);
         pos = end === -1 ? text.length : end;
       } else {
@@ -319,15 +325,21 @@ export const locateItems = (objects, rules) => {
   return { located, unmatched };
 };
 
-// Turns { zoneId: count } into zone names, most spawns first (ties by name). Zones without a name are returned apart.
+// Turns { zoneId: count } into zone names, most spawns first (ties by name). Zone ids that share a name count
+// together. Zones without a name are returned apart.
 export const zoneNamesByCount = (zones, nameById) => {
-  const named = [];
+  const byName = new Map();
   const unnamed = [];
   for (const [zone, count] of zones) {
     const name = nameById.get(zone);
-    (name ? named : unnamed).push({ zone, name, count });
+    if (name) {
+      byName.set(name, (byName.get(name) ?? 0) + count);
+    } else {
+      unnamed.push(zone);
+    }
   }
-  named.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-  const names = [...new Set(named.map((entry) => entry.name))];
-  return { names, unnamed: unnamed.map((entry) => entry.zone) };
+  const names = [...byName.entries()]
+    .sort(([nameA, countA], [nameB, countB]) => countB - countA || nameA.localeCompare(nameB))
+    .map(([name]) => name);
+  return { names, unnamed };
 };

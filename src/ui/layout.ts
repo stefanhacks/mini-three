@@ -53,3 +53,13 @@ export const keyboardShift = (
   }
   return Math.max(0, Math.min(overflow, top - margin - visibleTop));
 };
+
+/** Below this height (CSS px) a sideways phone can't show the frame with readable text. */
+export const MIN_LANDSCAPE_HEIGHT = 480;
+
+/**
+ * Whether to ask for the phone to be turned upright: a touch screen, held sideways, too short for the frame. Laptops
+ * and desktop browsers (fine pointer) never are, and neither are tablets, which are tall enough sideways.
+ */
+export const needsUpright = (width: number, height: number, coarsePointer: boolean): boolean =>
+  coarsePointer && width > height && height < MIN_LANDSCAPE_HEIGHT;

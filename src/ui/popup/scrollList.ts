@@ -12,12 +12,12 @@ export interface ScrollList {
   /** Replaces the rows. `resetScroll` jumps back to the top (a new profession); otherwise the offset is kept. */
   setRows: (rows: ListRow[], resetScroll: boolean) => void;
   setSelected: (key: string | null) => void;
+  /** Reserves `px` at the top of the list, above the first row (0 gives it back). */
+  setTopInset: (px: number) => void;
   /**
    * The scroll offset in rows (2.5 is halfway down the third row), to carry it into a list rebuilt with other row
    * heights.
    */
-  /** Reserves `px` at the top of the list, above the first row (0 gives it back). */
-  setTopInset: (px: number) => void;
   getPosition: () => number;
   setPosition: (position: number) => void;
 }

@@ -76,7 +76,9 @@ export const createSearchField = (onInput: (text: string) => void): SearchField 
   // just focused (closing the phone's keyboard). Swallow the mousedown that arrives right after focus().
   let guardUntil = 0;
   document.addEventListener("mousedown", (event) => {
-    if (performance.now() < guardUntil && event.target !== input) {
+    // Only canvas presses: a press on another DOM field (the notes textarea) must still focus it.
+    if (performance.now() < guardUntil && !(event.target instanceof HTMLInputElement)
+      && !(event.target instanceof HTMLTextAreaElement)) {
       event.preventDefault();
     }
   }, true);

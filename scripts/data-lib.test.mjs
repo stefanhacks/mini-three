@@ -75,7 +75,7 @@ describe("classifyGatherables", () => {
 
 describe("parseLua", () => {
   it("reads nested tables, nil placeholders, comments, escapes and keyed entries", () => {
-    const text = "{ -- note\n [7] = {'It\\'s',nil,{1,2},{[40]={{1.5,-2},{3,4}}},40},\n"
+    const text = "{ -- note\n --[[ disabled\n [8] = {} ]] [7] = {'It\\'s',nil,{1,2},{[40]={{1.5,-2},{3,4}}},40},\n"
       + " [objectKeys.name] = \"x\", [9] = zoneIDs.A }";
     const table = parseLua(text);
     const seven = table.map.get(7);
@@ -84,6 +84,7 @@ describe("parseLua", () => {
     expect(seven.list[3].map.get(40).list[0].list).toEqual([1.5, -2]);
     expect(table.map.get("objectKeys.name")).toBe("x");
     expect(table.map.get(9)).toEqual({ ref: "zoneIDs.A" });
+    expect(table.map.has(8)).toBe(false);
   });
 
   it("fails loudly on text it does not understand", () => {
@@ -133,5 +134,10 @@ describe("locateItems and zoneNamesByCount", () => {
     const names = new Map([[1, "Zeta"], [2, "Alpha"], [3, "Beta"]]);
     const zones = new Map([[1, 5], [2, 5], [3, 9], [4, 1]]);
     expect(zoneNamesByCount(zones, names)).toEqual({ names: ["Beta", "Alpha", "Zeta"], unnamed: [4] });
+  });
+
+  it("adds up zone ids that share a name", () => {
+    const names = new Map([[1, "X"], [2, "X"], [3, "Y"]]);
+    expect(zoneNamesByCount(new Map([[1, 10], [2, 10], [3, 15]]), names).names).toEqual(["X", "Y"]);
   });
 });

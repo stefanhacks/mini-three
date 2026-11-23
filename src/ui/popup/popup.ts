@@ -47,6 +47,8 @@ const MIN_TAB_CELL = 44;
 const SHORT_FRAME = 420;
 /** Room kept between the notes field and the top of the on-screen keyboard. */
 const KEYBOARD_MARGIN = 8;
+/** The detail pane's frame width: the notes field is clipped inside it. */
+const PANE_INSET = 2;
 
 /** What the list is filtered by: the trimmed text of the open search field, "" when closed or blank. */
 const searchQuery = (state: AppState): string => (state.search ?? "").trim();
@@ -237,6 +239,11 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
       const { selection } = store.get();
       const key = selectionKey(selection);
       if (key) {
+        // The picker, Back and the back gesture clear `detailOpen` but keep the selection, which desktop still shows;
+        // an edit needs the pane counted as open, or the leave guard cancels it at once.
+        if (!store.get().detailOpen) {
+          store.set({ detailOpen: true });
+        }
         startEdit(store, key, selection?.kind === "recipe");
         // Inside the press, so phones raise the keyboard.
         notesField.focus();
@@ -483,7 +490,9 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
       }
     }
     const { a, tx, ty } = detail.view.worldTransform;
-    notesField.place(tx + x * a, ty + y * a, width, height, a);
+    // The pane's content is masked but the DOM field is not: clip it to the pane when it scrolls past an edge.
+    const clip = { top: Math.max(0, PANE_INSET - y), bottom: Math.max(0, y + height - (g.detail.h - PANE_INSET)) };
+    notesField.place(tx + x * a, ty + y * a, width, height, a, clip);
   };
 
   // The search input sits over the list's top strip, moved there every frame from the window's transform like the
