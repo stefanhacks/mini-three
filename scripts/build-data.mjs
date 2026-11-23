@@ -10,7 +10,8 @@ import { pipeline } from "node:stream/promises";
 import { gunzipSync } from "node:zlib";
 import { resolveDescription } from "./descriptions.mjs";
 import {
-  SPELL_EFFECT_LEARN_SPELL, addTo, appendTo, classifyGatherables, locateItems, parseCsv, readQuestieObjects,
+  QUESTIE_ITEM_FIELDS, QUESTIE_NPC_FIELDS, QUESTIE_QUEST_FIELDS, SPELL_EFFECT_LEARN_SPELL, addTo, appendTo,
+  classifyGatherables, locateItems, parseCsv, readQuestieObjects, readQuestieTable, recipeItemSources,
   spellsTaughtByItems, toInt, zoneNamesByCount,
 } from "./data-lib.mjs";
 import {
@@ -28,11 +29,33 @@ const LISTFILE_TAG = "202611211242";
 // and reduced to a spawn count per zone. Source files: data/Forever/foreverObjectDB.lua (the object table, fields
 // name, questStarts, questEnds, spawns = { [AreaTable id] = { { x, y }, ... } }, zone) plus the Forever delta
 // src/corrections/Forever/generated/foreverBaseObject.lua (adds objects such as the Forever-only herb nodes).
+// Recipe sources are read the same way from the item, NPC and quest tables and their deltas (which add the
+// Forever-only recipe items and vendors), and reduced to each recipe's vendor zone names, sides, and whether a quest
+// rewards it or something drops it.
 const QUESTIE_COMMIT = "9921e9bfe86a600e83b157fc3f25e578f7725216";
-const QUESTIE_FILES = [
+const QUESTIE_OBJECT_FILES = [
   "data/Forever/foreverObjectDB.lua",
   "src/corrections/Forever/generated/foreverBaseObject.lua",
 ];
+const QUESTIE_SOURCE_FILES = {
+  item: ["data/Forever/foreverItemDB.lua", "src/corrections/Forever/generated/foreverBaseItem.lua"],
+  npc: ["data/Forever/foreverNpcDB.lua", "src/corrections/Forever/generated/foreverBaseNpc.lua"],
+  quest: ["data/Forever/foreverQuestDB.lua", "src/corrections/Forever/generated/foreverBaseQuest.lua"],
+};
+// Capitals (AreaTable names, as QuestieDB places their NPCs) and the zone around each. A recipe sold both in a capital
+// and elsewhere in its zone lists only the zone.
+// QuestieDB zone ids that are no AreaTable id (its own ids for some instances), with the client's name for them.
+const QUESTIE_ZONE_NAMES = new Map([
+  [1585, "Blackrock Depths"], // AreaTable 1584
+]);
+const CAPITAL_ZONES = new Map([
+  ["Orgrimmar", "Durotar"],
+  ["Thunder Bluff", "Mulgore"],
+  ["Undercity", "Tirisfal Glades"],
+  ["Stormwind City", "Elwynn Forest"],
+  ["Ironforge", "Dun Morogh"],
+  ["Darnassus", "Teldrassil"],
+]);
 // Server-side facts come from the CMaNGOS Classic world database (https://github.com/cmangos/classic-db, GPLv3), at
 // this commit, read the same way as QuestieDB: the gzipped dump is cached in .cache/ and reduced at build time to
 // zone names per fish, the fish each pool yields and a skill level per recipe. Nothing else is kept. The repo's
@@ -636,6 +659,18 @@ const locateHerbs = (itemById, locatable, questieObjects, areaNames, unnamedZone
   return { zonesByItem, skippedRuleItems, unmatched };
 };
 
+// Recipe sources: for each recipe taught by an item, where its items are sold, by side, and whether a quest rewards
+// them or something drops them. See recipeItemSources.
+const sourceRecipes = (recipes, taughtByItem, [itemTexts, npcTexts, questTexts], areaNames) => {
+  const itemsByRecipe = new Map(recipes.filter((recipe) => recipe.source === "item")
+    .map((recipe) => [recipeKeyOf(recipe), taughtByItem.get(recipe.id)]));
+  return recipeItemSources(itemsByRecipe, {
+    items: readQuestieTable(...itemTexts, "item", QUESTIE_ITEM_FIELDS),
+    npcs: readQuestieTable(...npcTexts, "npc", QUESTIE_NPC_FIELDS),
+    quests: readQuestieTable(...questTexts, "quest", QUESTIE_QUEST_FIELDS),
+  }, (zone) => areaNames.get(zone) ?? QUESTIE_ZONE_NAMES.get(zone), CAPITAL_ZONES);
+};
+
 // Fish locations: the zones whose fishing loot has them (CMaNGOS, by AreaTable id, subzones counted as their zone),
 // then the zones where a pool that yields them spawns (pool loot from CMaNGOS, pool spawns from QuestieDB).
 const locateFish = (fish, classicDb, areaRows, questieObjects, unnamedZones) => {
@@ -698,7 +733,7 @@ const writeData = async (files) => {
 // The report `docs/DATA.md` explains, line by line.
 const report = ({
   output, recipes, items, itemIds, classes, itemById, sparseById, gatherables, locatable, locationItems, herbs,
-  fishWithout, unnamedZones, learnOrigin, unusedAllowed, nameFromRecipe, unnamed, withoutIcon, warnings,
+  fishWithout, unnamedZones, learnOrigin, unusedAllowed, nameFromRecipe, unnamed, withoutIcon, recipeSources, warnings,
 }) => {
   const named = (ids) => listOrNone(ids.map((id) => `${id} ${items[id].name}`));
   log(`\nbuild ${BUILD}, listfile ${LISTFILE_TAG}`);
@@ -726,6 +761,12 @@ const report = ({
     + `the profession ${fromOrigin("profession")}, by hand ${fromOrigin("hand")}, unknown ${unknownLearn.length}:`);
   log(`  ${listOrNone(unknownLearn.map((recipe) => `${recipe.profession}:${recipe.name}`))}`);
   log(`\nrecipes taught by an item ${fromItems}, by a trainer or with the profession ${recipes.length - fromItems}`);
+  const unsourced = recipes.filter((recipe) => recipe.source === "item"
+    && !recipeSources.byRecipe.has(recipeKeyOf(recipe)));
+  log(`  with no known vendor, quest or drop ${unsourced.length}: `
+    + `${listOrNone(unsourced.map((recipe) => `${recipe.profession}:${recipe.name}`))}`);
+  log(`  recipe vendor zones without an AreaTable name, skipped: ${listOrNone([...recipeSources.unnamedZones])}`);
+  log(`  recipe vendors missing from the NPC table: ${listOrNone([...recipeSources.unknownNpcs])}`);
   const undescribed = recipes.filter((recipe) => !items[recipe.item]?.use).map((recipe) => recipe.name);
   log(`\nitems with a "Use:" text ${Object.values(items).filter((item) => item.use).length} of ${itemIds.size}; `
     + `recipes whose item has none: ${undescribed.length}`);
@@ -776,9 +817,10 @@ const main = async () => {
   const tables = Object.fromEntries(await Promise.all(TABLES.map(async (table) => [
     table, await downloadTable(table),
   ])));
-  const [icons, classicDb, eraEffects, ...questieTexts] = await Promise.all([
+  const [icons, classicDb, eraEffects, questieTexts, questieSourceTexts] = await Promise.all([
     loadIconNames(), loadClassicDb(), downloadTable("SpellEffect", ERA_BUILD),
-    ...QUESTIE_FILES.map(downloadQuestieFile),
+    Promise.all(QUESTIE_OBJECT_FILES.map(downloadQuestieFile)),
+    Promise.all(Object.values(QUESTIE_SOURCE_FILES).map((files) => Promise.all(files.map(downloadQuestieFile)))),
   ]);
   const warnings = [];
   const professions = readProfessions(tables.SkillLine);
@@ -799,15 +841,18 @@ const main = async () => {
   const herbs = locateHerbs(itemById, locatable, questieObjects, areaNames, unnamedZones);
   const fish = locateFish(gatherables.fishing ?? [], classicDb, tables.AreaTable, questieObjects, unnamedZones);
   const locationItems = { ...herbs.zonesByItem, ...fish.zonesByItem };
+  const recipeSources = sourceRecipes(recipes, learning.taughtByItem, questieSourceTexts, areaNames);
 
   await writeData({
     "locations.json": {
       source: `QuestieDB ${QUESTIE_COMMIT} (GPLv3, https://github.com/Questie/QuestieDB): `
-        + "only the zones each node and fishing pool spawns in, no files or coordinates. "
+        + "only the zones each node and fishing pool spawns in, and the zones, sides, quests and drops recipe items "
+        + "come from, no files or coordinates. "
         + `CMaNGOS classic-db ${CLASSICDB_COMMIT} (GPLv3, https://github.com/cmangos/classic-db): `
         + "only the zones each fish is caught in and the fish each pool yields, no files or rows",
       build: BUILD,
       items: locationItems,
+      recipes: Object.fromEntries(recipeSources.byRecipe),
     },
     "professions.json": output,
     "recipes.json": recipes,
@@ -817,7 +862,7 @@ const main = async () => {
   report({
     output, recipes, items, itemIds, classes, itemById, sparseById: byId(tables.ItemSparse), gatherables, locatable,
     locationItems, herbs, fishWithout: fish.fishWithout, unnamedZones, learnOrigin: learning.origin, unusedAllowed,
-    nameFromRecipe, unnamed, withoutIcon, warnings,
+    nameFromRecipe, unnamed, withoutIcon, recipeSources, warnings,
   });
 };
 
