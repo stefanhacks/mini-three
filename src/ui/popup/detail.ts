@@ -172,10 +172,13 @@ export const createDetailPane = (
 
   /**
    * "Notes" label, then the note as wrapped text. While editing (`editHeight` set) Save and Cancel join the label
-   * and the text gives way to an empty block of that height, where the textarea sits.
-   * Returns the y under the block.
+   * and the text gives way to an empty block of that height, where the textarea sits. Visitors only see it when the
+   * entry has a note. Returns the y under the block (`top` when it is left out).
    */
-  const noteBlock = (top: number, { note: text, notes, editHeight }: DetailView): number => {
+  const noteBlock = (top: number, { note: text, notes, canEdit, editHeight }: DetailView): number => {
+    if (!canEdit && text.trim() === "") {
+      return top;
+    }
     const labelY = top + 14;
     body.addChild(label("Notes:", TEXT_STYLES.label, PAD, labelY));
     const buttonY = labelY - EDIT_HEIGHT / 2;
