@@ -7,7 +7,7 @@ WoW: Hantō stops being a general profession window and covers one fixed set of 
 1. The professions are always, in this order: Alchemy, Herbalism, Cooking, Fishing, First Aid. The first two (primary) look distinct from the other three (secondary).
 2. No data is gathered, tested or kept for other professions.
 3. No profession picker, and no UI to choose professions.
-4. Alchemy, Cooking and First Aid recipes show their in-game description just above the notes.
+4. Recipes show their in-game description just above the notes. First asked for Alchemy, Cooking and First Aid; extended after QA to every recipe whose item has a "Use:" effect (Herbalism's and Fishing's Camping items).
 5. Search also matches a gatherable's "Found in" zones: "Mulgore" lists Peacebloom. This applies to herbs and to fish (C7).
 6. No recipe learnable above skill 300 appears: the game doesn't support it yet.
 7. Fish show the zones they are caught in, as herbs show theirs ("Found in"). Deviate Fish: The Barrens.
@@ -50,7 +50,7 @@ Stage 1 goes first: it changes the data types. Stages 2, 3 and 4 then touch sepa
 ### 2. Recipe descriptions
 
 - Downloads `Spell` and what its tokens need (`SpellMisc`, `SpellDuration`, `SpellEffect` is already there).
-- The created item's on-use spell (`ItemXItemEffect`, `ItemEffect` trigger 0), its description resolved, saved as `description` on Alchemy, Cooking and First Aid recipes.
+- The created item's on-use spell (`ItemXItemEffect`, `ItemEffect` trigger 0), its description resolved, saved as `description` on every recipe whose item has one.
 - Unit tests for the token resolver.
 - The detail pane shows it between the divider and "Notes:".
 

@@ -73,8 +73,6 @@ const MAX_LEARN_SKILL = 300;
 const ACQUIRE_WITH_PROFESSION = 1;
 // ItemEffect.TriggerType 0: the item's "Use:" spell.
 const TRIGGER_USE = 0;
-// Recipes of these professions get the "Use:" text of the item they create.
-const DESCRIBED_PROFESSIONS = new Set(["alchemy", "cooking", "first-aid"]);
 // Description tokens that point at data the client doesn't have, rewritten before resolving. Each `from` must still be
 // in that spell's description: the build fails when a new client build fixes the data, so the patch can go.
 const DESCRIPTION_PATCHES = [
@@ -405,15 +403,19 @@ const main = async () => {
   const excluded = new Set(EXCLUDED_CATEGORIES.map((name) => name.toLowerCase()));
   const isExcluded = (recipe) => {
     const name = categoryById.get(String(recipe.category))?.Name_lang ?? "";
-    return excluded.has(name.toLowerCase()) || (recipe.learn ?? 0) > MAX_LEARN_SKILL;
+    // Category 0: an ability the profession window doesn't list (the old Basic Campfire; Camping has the new one).
+    return recipe.category === 0 || excluded.has(name.toLowerCase()) || (recipe.learn ?? 0) > MAX_LEARN_SKILL;
   };
   const tooHigh = recipes.filter((recipe) => (recipe.learn ?? 0) > MAX_LEARN_SKILL);
   const dropped = recipes.filter(isExcluded);
   recipes.splice(0, recipes.length, ...recipes.filter((recipe) => !isExcluded(recipe)));
   const keptItems = referencedItems(recipes);
   const droppedItems = [...referencedItems(dropped)].filter((id) => !keptItems.has(id)).length;
-  log(`dropped ${dropped.length} recipes (${EXCLUDED_CATEGORIES.join(", ")}, or learnable above ${MAX_LEARN_SKILL}) `
+  log(`dropped ${dropped.length} recipes (no category, ${EXCLUDED_CATEGORIES.join(", ")}, or learnable above `
+    + `${MAX_LEARN_SKILL}) `
     + `and ${droppedItems} items only they use`);
+  log(`  without a category: ${dropped.filter((recipe) => recipe.category === 0).map((recipe) => recipe.name).join(", ")
+    || "none"}`);
   log(`  above ${MAX_LEARN_SKILL}: ${tooHigh.map((recipe) => `${recipe.name} ${recipe.learn}`).join(", ") || "none"}`);
 
   // Descriptions: the "Use:" text of the created item, with its $ tokens resolved. A token the resolver doesn't know
@@ -455,7 +457,7 @@ const main = async () => {
   }
   const undescribed = [];
   const unresolvedTokens = [];
-  for (const recipe of recipes.filter((entry) => DESCRIBED_PROFESSIONS.has(entry.profession))) {
+  for (const recipe of recipes) {
     const texts = (useSpellsByItem.get(recipe.item) ?? []).map((spell) => {
       const { text, unresolved } = resolveDescription(spell, spells);
       unresolved.forEach((token) => unresolvedTokens.push(`${recipe.name} (spell ${spell}): ${token}`));
@@ -678,7 +680,7 @@ const main = async () => {
     + `the profession ${fromOrigin("profession")}, unknown ${unknownLearn.length}:`);
   log(`  ${unknownLearn.map((recipe) => `${recipe.profession}:${recipe.name}`).join(", ") || "none"}`);
   log(`\nrecipes taught by an item ${fromItems}, by a trainer or with the profession ${recipes.length - fromItems}`);
-  log(`\nAlchemy, Cooking and First Aid recipes without a "Use:" description: ${undescribed.length}`);
+  log(`\nrecipes without a "Use:" description: ${undescribed.length}`);
   log(`  ${undescribed.join(", ") || "none"}`);
   log(`\nallow-listed items no kept recipe uses, left out: ${unusedAllowed.join(", ") || "none"}`);
   log(`\nrecipes ${recipes.length}, items ${itemIds.size}, items without icon ${withoutIcon}`);

@@ -35,7 +35,7 @@ The two GPLv3 sources are read at build time and reduced to facts. No file, row 
 ## The rules the data follows
 
 - Professions: Alchemy, Herbalism, Cooking, Fishing, First Aid, in that order (`PROFESSIONS`). Nothing else is read.
-- Recipes in the `SEASON OF DISCOVERY` category, and recipes learnable above skill 300 (`MAX_LEARN_SKILL`), are dropped, with the items only they used.
+- Recipes with no category (abilities the profession window doesn't list, like the old Basic Campfire), recipes in the `SEASON OF DISCOVERY` category, and recipes learnable above skill 300 (`MAX_LEARN_SKILL`), are dropped, with the items only they used.
 - `learn` is the lowest skill a recipe item or trainer asks, or 1 for recipes that come with the profession. Unknown stays unset.
 - Herbs are the uncrafted reagents of item class 7, subclass 9, plus `HERBALISM_ITEMS`. Fish are exactly `FISHING_ITEMS`: the item tables can't tell fish from meat.
 - Herb zones come from `LOCATION_RULES` (which node yields which herb). Fish zones come from the fishing loot, then from pool spawns.
