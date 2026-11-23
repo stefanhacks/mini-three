@@ -11,6 +11,8 @@ export interface DragScroll {
   dragged: () => boolean;
   /** Stops a running fling (the wheel calls this). */
   stop: () => void;
+  /** Drops the current press without scrolling further or flinging, e.g. when another gesture claims it. */
+  cancel: () => void;
 }
 
 interface Scroll {
@@ -117,6 +119,11 @@ export const createDragScroll = (view: Container, ticker: Ticker, scroll: Scroll
     },
     dragged: () => dragged,
     stop,
+    cancel: () => {
+      stop();
+      drag = null;
+      setDragged(false);
+    },
   };
 };
 
