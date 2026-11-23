@@ -6,6 +6,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { resolveDescription } from "./descriptions.mjs";
 import {
   SPELL_EFFECT_LEARN_SPELL, classifyGatherables, locateItems, parseCsv, readQuestieObjects,
   spellsTaughtByItems, toInt, zoneNamesByCount,
@@ -47,9 +48,20 @@ const PROFESSION_CATEGORIES = new Set([9, 11]);
 const TABLES = [
   "SkillLine", "SkillLineAbility", "TradeSkillCategory", "SpellName", "SpellReagents", "SpellEffect",
   "Item", "ItemSparse", "ItemModifiedAppearance", "ItemAppearance", "ItemEffect", "ItemXItemEffect",
+  "Spell", "SpellMisc", "SpellDuration", "SpellRadius", "SpellAuraOptions",
 ];
 
 const SPELL_EFFECT_CREATE_ITEM = 24;
+// ItemEffect.TriggerType 0: the item's "Use:" spell.
+const TRIGGER_USE = 0;
+// Recipes of these professions get the "Use:" text of the item they create.
+const DESCRIBED_PROFESSIONS = new Set(["alchemy", "cooking", "first-aid"]);
+// Description tokens that point at data the client doesn't have, rewritten before resolving. Each `from` must still be
+// in that spell's description: the build fails when a new client build fixes the data, so the patch can go.
+const DESCRIPTION_PATCHES = [
+  // Goldthorn Tea: the buff 1249907 has a single effect (+15 Herbalism, index 0), not a second one.
+  { spell: 1249906, from: "$1249907s2", to: "$1249907s1" },
+];
 const MAX_REAGENTS = 8;
 const FISH_PET_FOOD = 2;
 
@@ -220,7 +232,8 @@ const byId = (rows) => new Map(rows.map((row) => [row.ID, row]));
 const main = async () => {
   const tables = await Promise.all(TABLES.map(downloadTable));
   const [skillLines, abilities, tradeCategories, spellNames, reagentRows, effects, itemRows, sparseRows,
-    appearanceLinks, appearances, itemEffects, itemEffectLinks] = tables;
+    appearanceLinks, appearances, itemEffects, itemEffectLinks, spellRows, spellMiscRows, durationRows, radiusRows,
+    auraOptionRows] = tables;
   const icons = await loadIconNames();
 
   // Professions: top-level skill lines (not the per-tier children) with a profession name and category.
@@ -324,6 +337,61 @@ const main = async () => {
   const keptItems = referencedItems(recipes);
   const droppedItems = [...referencedItems(dropped)].filter((id) => !keptItems.has(id)).length;
   log(`dropped ${dropped.length} recipes (${EXCLUDED_CATEGORIES.join(", ")}) and ${droppedItems} items only they use`);
+
+  // Descriptions: the "Use:" text of the created item, with its $ tokens resolved. A token the resolver doesn't know
+  // fails the build: extend scripts/descriptions.mjs rather than shipping "$s1".
+  const baseRows = (rows) => rows.filter((row) => toInt(row.DifficultyID) === 0);
+  const spellText = new Map(spellRows.map((row) => [toInt(row.ID), row.Description_lang]));
+  for (const { spell, from, to } of DESCRIPTION_PATCHES) {
+    const text = spellText.get(spell) ?? "";
+    if (!text.includes(from)) {
+      throw new Error(`description patch for spell ${spell} no longer applies: ${from} is gone, remove the patch`);
+    }
+    spellText.set(spell, text.replaceAll(from, to));
+  }
+  const radiusById = new Map(radiusRows.map((row) => [toInt(row.ID), Number(row.Radius)]));
+  const effectByKey = new Map(baseRows(effects).map((row) => [`${row.SpellID}:${row.EffectIndex}`, {
+    base: Number(row.EffectBasePointsF),
+    variance: Number(row.Variance),
+    period: toInt(row.EffectAuraPeriod),
+    radius: radiusById.get(toInt(row.EffectRadiusIndex_0)) ?? 0,
+  }]));
+  const durationById = new Map(durationRows.map((row) => [toInt(row.ID), toInt(row.Duration)]));
+  const durationBySpell = new Map(baseRows(spellMiscRows).map((row) => [
+    toInt(row.SpellID), durationById.get(toInt(row.DurationIndex)),
+  ]));
+  const stacksBySpell = new Map(baseRows(auraOptionRows).map((row) => [toInt(row.SpellID), toInt(row.CumulativeAura)]));
+  const spells = {
+    description: (id) => spellText.get(id),
+    effect: (id, index) => effectByKey.get(`${id}:${index}`),
+    duration: (id) => durationBySpell.get(id),
+    stacks: (id) => stacksBySpell.get(id),
+  };
+  const useSpellsByItem = new Map();
+  for (const link of itemEffectLinks) {
+    const effect = itemEffectById.get(toInt(link.ItemEffectID));
+    if (effect && effect.trigger === TRIGGER_USE) {
+      const item = toInt(link.ItemID);
+      useSpellsByItem.set(item, [...(useSpellsByItem.get(item) ?? []), effect.spell]);
+    }
+  }
+  const undescribed = [];
+  const unresolvedTokens = [];
+  for (const recipe of recipes.filter((entry) => DESCRIBED_PROFESSIONS.has(entry.profession))) {
+    const texts = (useSpellsByItem.get(recipe.item) ?? []).map((spell) => {
+      const { text, unresolved } = resolveDescription(spell, spells);
+      unresolved.forEach((token) => unresolvedTokens.push(`${recipe.name} (spell ${spell}): ${token}`));
+      return text;
+    }).filter(Boolean);
+    if (texts.length > 0) {
+      recipe.description = texts.join("\n");
+    } else {
+      undescribed.push(recipe.name);
+    }
+  }
+  if (unresolvedTokens.length > 0) {
+    throw new Error(`unresolved description tokens:\n  ${unresolvedTokens.join("\n  ")}`);
+  }
 
   // Items: only those the recipes reference.
   const itemById = byId(itemRows);
@@ -472,6 +540,8 @@ const main = async () => {
   log(`  spawn zones without an AreaTable name, skipped: ${[...unnamedZones].join(", ") || "none"}`);
   const fromItems = recipes.filter((recipe) => recipe.source === "item").length;
   log(`\nrecipes taught by an item ${fromItems}, by a trainer or with the profession ${recipes.length - fromItems}`);
+  log(`\nAlchemy, Cooking and First Aid recipes without a "Use:" description: ${undescribed.length}`);
+  log(`  ${undescribed.join(", ") || "none"}`);
   log(`\nallow-listed items no kept recipe uses, left out: ${unusedAllowed.join(", ") || "none"}`);
   log(`\nrecipes ${recipes.length}, items ${itemIds.size}, items without icon ${withoutIcon}`);
 

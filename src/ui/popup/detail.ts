@@ -5,7 +5,7 @@ import type { Recipe } from "../../data";
 import {
   PROFESSION_ICONS, gathererOf, itemOf, locationsOf, professionByKey, recipeKey, recipesUsingItem,
 } from "../../data/model";
-import { type ArtKit, PALETTE, TEXT_STYLES, createStoneOverlay } from "../art";
+import { type ArtKit, PALETTE, QUALITY_COLORS, TEXT_STYLES, createStoneOverlay } from "../art";
 import { at, button, checkbox, iconSprite, itemSlot, label, piece, qualityColor, tinted } from "../widgets";
 import { createDragScroll } from "./dragScroll";
 
@@ -185,6 +185,21 @@ export const createDetailPane = (
     return textY + blockHeight;
   };
 
+  /**
+   * The created item's "Use:" text, green as in the game's tooltip, wrapped at the pane width. Returns the top the
+   * notes block should start from (unchanged when there is no description).
+   */
+  const useBlock = (top: number, description: string | undefined): number => {
+    if (!description) {
+      return top;
+    }
+    const text = label(`Use: ${description}`, tinted(TEXT_STYLES.body, QUALITY_COLORS.uncommon), PAD, top + 8, 0, 0);
+    text.style.wordWrap = true;
+    text.style.wordWrapWidth = inner;
+    body.addChild(text);
+    return top + 14 + text.height;
+  };
+
   const clickable = (target: Container, itemId: number, hitWidth: number, hitHeight: number) => {
     target.eventMode = "static";
     target.cursor = "pointer";
@@ -221,7 +236,7 @@ export const createDetailPane = (
       body.addChild(at(knownBox.view, PAD + inner - 72, PAD + 2));
     }
 
-    const sourceY = noteBlock(underDivider, text, editHeight) + SECTION_GAP;
+    const sourceY = noteBlock(useBlock(underDivider, recipe.description), text, editHeight) + SECTION_GAP;
     const sourceLabel = label("Learned from:", TEXT_STYLES.label, PAD, sourceY);
     body.addChild(sourceLabel, label(recipe.source === "item" ? "Recipe item" : "Trainer", TEXT_STYLES.body,
       PAD + sourceLabel.width + 6, sourceY));
