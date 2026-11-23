@@ -443,6 +443,12 @@ export const QUESTIE_QUEST_FIELDS = ["name", "startedBy"];
 
 export const RECIPE_SIDES = ["H", "A", "N"];
 export const QUEST_PLACE = "Quest";
+// More mobs than this sharing the best drop chance make it a world drop: no single mob is worth naming.
+export const WORLD_DROP_MOBS = 5;
+// QuestieDB NPC `rank` values of rare spawns (rare elite, rare), as numbers in the raw table and `npcRanks` refs in
+// the Forever corrections. Their drops count only when no common mob has one.
+const RARE_RANKS = new Set([2, 4, "npcRanks.RARE_ELITE", "npcRanks.RARE"]);
+const isRare = (npc) => RARE_RANKS.has(npc.rank?.ref ?? npc.rank);
 
 /**
  * Where each recipe's items are obtained, from QuestieDB: per side (H Horde, A Alliance, N neutral, by the NPC's
@@ -450,25 +456,81 @@ export const QUEST_PLACE = "Quest";
  * one; and `drop` when a creature, object or container drops one. A quest's side is its starting NPCs' side (neutral
  * when no NPC starts it). A capital listed with its own zone is left out: the zone wins (`capitals` maps a capital's
  * name to its zone's). itemsByRecipe: Map<recipe key, recipe item ids>. data: { items, npcs, quests } from
- * readQuestieTable. zoneName(id): the zone's name, or undefined. Returns { byRecipe: Map<recipe key,
- * { H?, A?, N?, drop? }> (recipes with no known source left out), unnamedZones: Set<zoneId>,
- * unknownNpcs: Set<npcId> }.
+ * readQuestieTable, and dropChances (Map<item, Map<npc, percent>>, see creatureDropChances). zoneName(id): the zone's
+ * name, or undefined. Returns { byRecipe: Map<recipe key, { H?, A?, N?, drop? }> (recipes with no known source left
+ * out; `drop` as bestDrop returns it), unnamedZones: Set<zoneId>, unknownNpcs: Set<npcId> }.
  */
-export const recipeItemSources = (itemsByRecipe, { items, npcs, quests }, zoneName, capitals) => {
+export const recipeItemSources = (itemsByRecipe, { items, npcs, quests, dropChances = new Map() }, zoneName,
+  capitals) => {
   const ids = (table) => (table?.list ?? []).filter((value) => typeof value === "number");
   const sideOf = (npc) => (["H", "A"].includes(npc.friendlyToFaction) ? npc.friendlyToFaction : "N");
   const drops = (item) => [item.npcDrops, item.objectDrops, item.itemDrops].some((table) => ids(table).length > 0);
   const unnamedZones = new Set();
   const unknownNpcs = new Set();
+  const spawnsByZone = (npc) => new Map([...(npc.spawns?.map ?? [])]
+    .filter(([zone]) => typeof zone === "number")
+    .map(([zone, points]) => [zone, points?.list?.length ?? 0]));
   const zonesOf = (npc) => {
-    const spawned = [...(npc.spawns?.map?.keys() ?? [])].filter((zone) => typeof zone === "number");
+    const spawned = [...spawnsByZone(npc).keys()];
     return spawned.length > 0 ? spawned : [npc.zoneID].filter((zone) => typeof zone === "number" && zone > 0);
   };
+  const spawnCount = (npc) => [...spawnsByZone(npc).values()].reduce((sum, count) => sum + count, 0);
+
+  // The zone an NPC spawns in most (ties by name), or its `zoneID`. Unnamed zones are reported and skipped.
+  const mainZone = (npc) => {
+    const counts = spawnsByZone(npc);
+    const named = zonesOf(npc).flatMap((zone) => {
+      const name = zoneName(zone);
+      if (!name) {
+        unnamedZones.add(zone);
+      }
+      return name ? [{ name, count: counts.get(zone) ?? 0 }] : [];
+    });
+    return named.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))[0]?.name;
+  };
+
+  /**
+   * The mob most likely to drop one of `found` ([id, item] pairs): the best chance among common mobs, else among
+   * rare ones, else (no chance known, e.g. Forever-only mobs) any listed mob. Ties go to the mob with most spawns,
+   * then the lowest id. Returns { npc, zone?, chance? }, { world: true, chance? } when more than WORLD_DROP_MOBS mobs
+   * share the best chance, {} when only objects or containers drop it, or undefined when nothing does. Chances are
+   * percent, to two significant digits.
+   */
+  const bestDrop = (found) => {
+    if (!found.some(([, item]) => drops(item))) {
+      return undefined;
+    }
+    const chanceByNpc = new Map();
+    for (const [itemId, item] of found) {
+      for (const npcId of ids(item.npcDrops).filter((id) => npcs.has(id))) {
+        const chance = dropChances.get(itemId)?.get(npcId) ?? 0;
+        chanceByNpc.set(npcId, Math.max(chanceByNpc.get(npcId) ?? 0, chance));
+      }
+    }
+    const mobs = [...chanceByNpc].map(([id, chance]) => ({ id, npc: npcs.get(id), chance }));
+    const dropping = mobs.filter((mob) => mob.chance > 0);
+    const common = dropping.filter((mob) => !isRare(mob.npc));
+    const pool = common.length > 0 ? common : dropping.length > 0 ? dropping : mobs;
+    if (pool.length === 0) {
+      return {};
+    }
+    const top = Math.max(...pool.map((mob) => mob.chance));
+    const chance = top > 0 ? { chance: Number(top.toPrecision(2)) } : {};
+    const tied = pool.filter((mob) => mob.chance === top);
+    if (tied.length > WORLD_DROP_MOBS) {
+      return { world: true, ...chance };
+    }
+    const [best] = tied.sort((a, b) => spawnCount(b.npc) - spawnCount(a.npc) || a.id - b.id);
+    const zone = mainZone(best.npc);
+    return { npc: best.npc.name, ...(zone ? { zone } : {}), ...chance };
+  };
+
   const byRecipe = new Map();
   for (const [key, itemIds] of itemsByRecipe) {
     const zones = Object.fromEntries(RECIPE_SIDES.map((side) => [side, new Set()]));
     const questSides = new Set();
-    const found = itemIds.map((id) => items.get(id)).filter(Boolean);
+    const pairs = itemIds.map((id) => [id, items.get(id)]).filter(([, item]) => item);
+    const found = pairs.map(([, item]) => item);
     for (const item of found) {
       for (const vendor of ids(item.vendors)) {
         const npc = npcs.get(vendor);
@@ -502,8 +564,9 @@ export const recipeItemSources = (itemsByRecipe, { items, npcs, quests }, zoneNa
         source[side] = places;
       }
     }
-    if (found.some(drops)) {
-      source.drop = true;
+    const drop = bestDrop(pairs);
+    if (drop) {
+      source.drop = drop;
     }
     if (Object.keys(source).length > 0) {
       byRecipe.set(key, source);

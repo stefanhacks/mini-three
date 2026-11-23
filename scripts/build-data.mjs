@@ -15,7 +15,7 @@ import {
   spellsTaughtByItems, toInt, zoneNamesByCount,
 } from "./data-lib.mjs";
 import {
-  fishingAreas, orderFishZones, poolYields, readSqlTable, trainerSkillLevels,
+  creatureDropChances, fishingAreas, orderFishZones, poolYields, readSqlTable, trainerSkillLevels,
 } from "./server-data.mjs";
 
 // Pinned inputs: change them on purpose, and the output changes with them.
@@ -659,15 +659,19 @@ const locateHerbs = (itemById, locatable, questieObjects, areaNames, unnamedZone
   return { zonesByItem, skippedRuleItems, unmatched };
 };
 
-// Recipe sources: for each recipe taught by an item, where its items are sold, by side, and whether a quest rewards
-// them or something drops them. See recipeItemSources.
-const sourceRecipes = (recipes, taughtByItem, [itemTexts, npcTexts, questTexts], areaNames) => {
+// Recipe sources: for each recipe taught by an item, where its items are sold, by side, whether a quest rewards
+// them, and which mob most likely drops them (drop chances from CMaNGOS). See recipeItemSources.
+const sourceRecipes = (recipes, taughtByItem, [itemTexts, npcTexts, questTexts], areaNames, classicDb) => {
   const itemsByRecipe = new Map(recipes.filter((recipe) => recipe.source === "item")
     .map((recipe) => [recipeKeyOf(recipe), taughtByItem.get(recipe.id)]));
+  const dropChances = creatureDropChances(readSqlTable(classicDb, "creature_template"),
+    readSqlTable(classicDb, "creature_loot_template"), readSqlTable(classicDb, "reference_loot_template"),
+    [...itemsByRecipe.values()].flat());
   return recipeItemSources(itemsByRecipe, {
     items: readQuestieTable(...itemTexts, "item", QUESTIE_ITEM_FIELDS),
     npcs: readQuestieTable(...npcTexts, "npc", QUESTIE_NPC_FIELDS),
     quests: readQuestieTable(...questTexts, "quest", QUESTIE_QUEST_FIELDS),
+    dropChances,
   }, (zone) => areaNames.get(zone) ?? QUESTIE_ZONE_NAMES.get(zone), CAPITAL_ZONES);
 };
 
@@ -765,6 +769,11 @@ const report = ({
     && !recipeSources.byRecipe.has(recipeKeyOf(recipe)));
   log(`  with no known vendor, quest or drop ${unsourced.length}: `
     + `${listOrNone(unsourced.map((recipe) => `${recipe.profession}:${recipe.name}`))}`);
+  const drops = [...recipeSources.byRecipe.values()].flatMap((source) => (source.drop ? [source.drop] : []));
+  const countDrops = (test) => drops.filter(test).length;
+  log(`  dropped ${drops.length}: by a named mob ${countDrops((drop) => drop.npc)} (no chance known `
+    + `${countDrops((drop) => drop.npc && !drop.chance)}), world ${countDrops((drop) => drop.world)}, `
+    + `by objects or containers only ${countDrops((drop) => !drop.npc && !drop.world)}`);
   log(`  recipe vendor zones without an AreaTable name, skipped: ${listOrNone([...recipeSources.unnamedZones])}`);
   log(`  recipe vendors missing from the NPC table: ${listOrNone([...recipeSources.unknownNpcs])}`);
   const undescribed = recipes.filter((recipe) => !items[recipe.item]?.use).map((recipe) => recipe.name);
@@ -841,15 +850,16 @@ const main = async () => {
   const herbs = locateHerbs(itemById, locatable, questieObjects, areaNames, unnamedZones);
   const fish = locateFish(gatherables.fishing ?? [], classicDb, tables.AreaTable, questieObjects, unnamedZones);
   const locationItems = { ...herbs.zonesByItem, ...fish.zonesByItem };
-  const recipeSources = sourceRecipes(recipes, learning.taughtByItem, questieSourceTexts, areaNames);
+  const recipeSources = sourceRecipes(recipes, learning.taughtByItem, questieSourceTexts, areaNames, classicDb);
 
   await writeData({
     "locations.json": {
       source: `QuestieDB ${QUESTIE_COMMIT} (GPLv3, https://github.com/Questie/QuestieDB): `
-        + "only the zones each node and fishing pool spawns in, and the zones, sides, quests and drops recipe items "
+        + "only the zones each node and fishing pool spawns in, and the zones, sides, quests and mobs recipe items "
         + "come from, no files or coordinates. "
         + `CMaNGOS classic-db ${CLASSICDB_COMMIT} (GPLv3, https://github.com/cmangos/classic-db): `
-        + "only the zones each fish is caught in and the fish each pool yields, no files or rows",
+        + "only the zones each fish is caught in, the fish each pool yields and the best drop chance of each recipe "
+        + "item, no files or rows",
       build: BUILD,
       items: locationItems,
       recipes: Object.fromEntries(recipeSources.byRecipe),

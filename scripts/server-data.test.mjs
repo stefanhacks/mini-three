@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  fishingAreas, lootChances, orderFishZones, poolYields, readSqlTable, trainerSkillLevels,
+  creatureDropChances, fishingAreas, lootChances, orderFishZones, poolYields, readSqlTable, trainerSkillLevels,
 } from "./server-data.mjs";
 
 const loot = (entry, item, chance, group = 0, ref = 1) =>
@@ -39,6 +39,19 @@ describe("lootChances", () => {
   it("ignores quest-only rows, which have a negative chance, even in a group that shares its leftover", () => {
     const rows = [loot(1, 10, -30, 1), loot(1, 11, 0, 1), loot(1, 12, 0, 1)];
     expect(lootChances(rows, new Map())).toEqual(new Map([[11, 50], [12, 50]]));
+  });
+});
+
+describe("creatureDropChances", () => {
+  it("maps wanted items to every creature using a loot entry, following references, and skips LootId 0", () => {
+    const templates = [
+      { Entry: 1, LootId: 7 }, { Entry: 2, LootId: 7 }, { Entry: 3, LootId: 0 }, { Entry: 4, LootId: 8 },
+    ];
+    const rows = [loot(7, 10, 2), loot(7, 11, 50), loot(8, 0, 10, 0, -9), loot(0, 10, 100)];
+    const references = [loot(9, 10, 1)];
+    expect(creatureDropChances(templates, rows, references, [10])).toEqual(new Map([
+      [10, new Map([[1, 2], [2, 2], [4, 0.1]])],
+    ]));
   });
 });
 

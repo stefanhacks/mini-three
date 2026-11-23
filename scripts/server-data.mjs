@@ -134,6 +134,31 @@ export const fishingAreas = (fishingRows, referenceRows, items) => {
   return found;
 };
 
+/**
+ * Chance in percent that each creature drops each of `items`: Map<item, Map<creature, chance>>. templateRows:
+ * creature_template (`Entry`, `LootId`, 0 for no loot), lootRows: creature_loot_template, referenceRows:
+ * reference_loot_template. Creatures sharing a loot entry share its chances.
+ */
+export const creatureDropChances = (templateRows, lootRows, referenceRows, items) => {
+  const wanted = new Set(items);
+  const loot = groupBy(lootRows, "entry");
+  const references = groupBy(referenceRows, "entry");
+  const byLootId = new Map();
+  const found = new Map();
+  for (const creature of templateRows.filter((row) => row.LootId > 0)) {
+    if (!byLootId.has(creature.LootId)) {
+      const chances = lootChances(loot.get(creature.LootId) ?? [], references);
+      byLootId.set(creature.LootId, [...chances].filter(([item]) => wanted.has(item)));
+    }
+    for (const [item, chance] of byLootId.get(creature.LootId)) {
+      const creatures = found.get(item) ?? new Map();
+      creatures.set(creature.Entry, chance);
+      found.set(item, creatures);
+    }
+  }
+  return found;
+};
+
 // gameobject_template.type of fishing pools (GAMEOBJECT_TYPE_FISHINGHOLE); `data1` is their loot entry.
 export const FISHING_POOL_TYPE = 25;
 
