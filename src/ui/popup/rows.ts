@@ -41,16 +41,20 @@ interface RowFilter {
   query?: string;
 }
 
+/** The category that leads every profession's list, above even its gatherables. */
+const CAMPING = "Camping";
+
 /** Lowercase with accents removed ("Élixir" and "elixir" compare equal), for the search match. */
 export const normalize = (text: string): string => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
 /**
- * Flattens a profession into list rows: its gatherables first (one section), then its recipes by category in the
- * game's category order, each by the skill it is learnable at (recipes with no known level by their yellow skill
- * instead), then yellow skill, then name. Empty sections are skipped; collapsed sections keep their header only.
- * With `knownOnly`, recipes that are not known are left out (and so are sections left empty). With a `query`, only
- * entries whose name contains it stay (a recipe also when one of its reagents does, a gatherable also when one of its
- * zones does: "Mulgore" finds Peacebloom), and collapsed sections open up so every match shows.
+ * Flattens a profession into list rows: its Camping category first, then its gatherables (one section), then the rest
+ * of its recipes by category in the game's category order, each by the skill it is learnable at (recipes with no
+ * known level by their yellow skill instead), then yellow skill, then name. Empty sections are skipped; collapsed
+ * sections keep their header only. With `knownOnly`, recipes that are not known are left out (and so are sections left
+ * empty). With a `query`, only entries whose name contains it stay (a recipe also when one of its reagents does, a
+ * gatherable also when one of its zones does: "Mulgore" finds Peacebloom), and collapsed sections open up so every
+ * match shows.
  */
 export const buildRows = (
   profession: Profession, collapsed: ReadonlySet<string>, sources: RowSources, filter: RowFilter,
@@ -70,14 +74,8 @@ export const buildRows = (
     }
   };
 
-  const gathered = profession.gatherables
-    .filter((itemId) => !searching || matches(sources.itemOf(itemId).name) || sources.zonesOf(itemId).some(matches))
-    .sort((a, b) => sources.itemOf(a).name.localeCompare(sources.itemOf(b).name))
-    .map((itemId): ListRow => ({ kind: "item", key: itemKey(itemId), itemId }));
-  section(`${profession.key}:gathered`, "Gathered", gathered);
-
   const byCategory = groupBy(sources.recipes, (recipe) => recipe.category);
-  profession.categories.forEach((category) => {
+  const categorySection = (category: Profession["categories"][number]) => {
     const list = (byCategory.get(category.id) ?? [])
       .filter((recipe) => !filter.knownOnly || filter.known.has(sources.recipeKey(recipe)))
       .filter((recipe) => !searching || matches(recipe.name)
@@ -89,6 +87,18 @@ export const buildRows = (
         const key = sources.recipeKey(recipe);
         return { kind: "recipe", key, recipe, known: filter.known.has(key) };
       }));
-  });
+  };
+  // Camping is its own category id in each profession, so it is matched by name.
+  const isCamping = (category: Profession["categories"][number]) => category.name === CAMPING;
+
+  profession.categories.filter(isCamping).forEach(categorySection);
+
+  const gathered = profession.gatherables
+    .filter((itemId) => !searching || matches(sources.itemOf(itemId).name) || sources.zonesOf(itemId).some(matches))
+    .sort((a, b) => sources.itemOf(a).name.localeCompare(sources.itemOf(b).name))
+    .map((itemId): ListRow => ({ kind: "item", key: itemKey(itemId), itemId }));
+  section(`${profession.key}:gathered`, "Gathered", gathered);
+
+  profession.categories.filter((category) => !isCamping(category)).forEach(categorySection);
   return rows;
 };
