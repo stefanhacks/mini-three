@@ -73,7 +73,7 @@ const MAX_LEARN_SKILL = 300;
 // from each recipe's Wowhead page (wowhead.com/forever, the "Skill" column) and checked by the owner. Keyed by
 // `<profession>:<spell>`. The build fails when an entry names no recipe, or when a recipe item or trainer starts giving
 // that recipe a level: then the entry can go. Unknown on Wowhead too, left out: Cleansing Stew, Refined Scale of
-// Onyxia, Crystal Infused Bandage; not checked yet: Mana Well, Viridian Dye.
+// Onyxia, Crystal Infused Bandage.
 const LEARN_BY_HAND = {
   "herbalism:1229705": 20, // Incense Candle
   "fishing:1229745": 20, // Fish Bowl
@@ -88,7 +88,9 @@ const LEARN_BY_HAND = {
   "cooking:1247741": 210, // Spinefin Halibut
   "alchemy:1249630": 40, // Cerulean Dye
   "alchemy:1249631": 120, // Magenta Dye
-  "alchemy:1249633": 49, // Sulfuric Acid
+  "alchemy:1249632": 215, // Viridian Dye
+  "alchemy:1230564": 20, // Mana Well
+  "alchemy:1249633": 40, // Sulfuric Acid
   "first-aid:1259342": 90, // Simple Poultice
   "first-aid:1259347": 120, // Woolen Tourniquet
   "alchemy:1250775": 205, // Revealing Draught
