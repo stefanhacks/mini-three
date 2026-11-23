@@ -44,6 +44,7 @@ export const PALETTE = {
     muted: 0x8f877b,
     label: 0xffd100,
     disabled: 0x6b655c,
+    error: 0xff7b63,
     shadow: 0x000000,
   },
   skill: {

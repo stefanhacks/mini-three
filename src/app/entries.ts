@@ -46,3 +46,21 @@ export const readEntries = (value: unknown): SharedEntries => ({
   notes: readNotes(isRecord(value) ? value.notes : undefined),
   known: readKnown(isRecord(value) ? value.known : undefined),
 });
+
+/** One change a save makes: a note's text ("" removes it) or a recipe's Known flag. */
+export type EntryChange = { key: string; note: string } | { key: string; known: boolean };
+
+/** `entries` with `change` applied. */
+export const applyChange = (entries: SharedEntries, change: EntryChange): SharedEntries => {
+  if ("note" in change) {
+    const notes = { ...entries.notes };
+    if (change.note === "") {
+      delete notes[change.key];
+    } else {
+      notes[change.key] = change.note;
+    }
+    return { ...entries, notes };
+  }
+  const known = entries.known.filter((key) => key !== change.key);
+  return { ...entries, known: change.known ? [...known, change.key] : known };
+};

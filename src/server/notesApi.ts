@@ -1,4 +1,6 @@
-import { type SharedEntries, isNoteKey, isRecipeKey, isRecord, noteFromDraft } from "../app/entries";
+import {
+  type EntryChange, type SharedEntries, applyChange, isNoteKey, isRecipeKey, isRecord, noteFromDraft,
+} from "../app/entries";
 
 /**
  * Where the shared entries live. `write` stores `entries` only if the stored version is still `version` (null: none
@@ -8,9 +10,6 @@ export interface EntriesStore {
   read: () => Promise<{ entries: SharedEntries; version: string | null }>;
   write: (entries: SharedEntries, version: string | null) => Promise<string | null>;
 }
-
-/** One change a save makes: a note's text ("" removes it) or a recipe's Known flag. */
-export type EntryChange = { key: string; note: string } | { key: string; known: boolean };
 
 /** Attempts at a save when other saves keep landing first. */
 const WRITE_ATTEMPTS = 3;
@@ -57,21 +56,6 @@ export const readChange = (body: unknown): EntryChange | string => {
     return isRecipeKey(key) ? { key, known: body.known } : `not a recipe key: ${key}`;
   }
   return "expected exactly one of note (string) or known (boolean)";
-};
-
-/** `entries` with `change` applied. */
-export const applyChange = (entries: SharedEntries, change: EntryChange): SharedEntries => {
-  if ("note" in change) {
-    const notes = { ...entries.notes };
-    if (change.note === "") {
-      delete notes[change.key];
-    } else {
-      notes[change.key] = change.note;
-    }
-    return { ...entries, notes };
-  }
-  const known = entries.known.filter((key) => key !== change.key);
-  return { ...entries, known: change.known ? [...known, change.key] : known };
 };
 
 const readBody = async(req: Request): Promise<unknown> => {

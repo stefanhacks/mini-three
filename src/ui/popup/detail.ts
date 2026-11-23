@@ -47,6 +47,8 @@ export interface DetailView {
    * scrolls to keep that block in view.
    */
   editHeight: number | null;
+  /** Why the last save of this entry failed, shown under its note. */
+  error: string | null;
 }
 
 /** The note area's text when the entry has no note. */
@@ -175,8 +177,8 @@ export const createDetailPane = (
    * and the text gives way to an empty block of that height, where the textarea sits. Visitors only see it when the
    * entry has a note. Returns the y under the block (`top` when it is left out).
    */
-  const noteBlock = (top: number, { note: text, notes, canEdit, editHeight }: DetailView): number => {
-    if (!canEdit && text.trim() === "") {
+  const noteBlock = (top: number, { note: text, notes, canEdit, editHeight, error }: DetailView): number => {
+    if (!canEdit && text.trim() === "" && !error) {
       return top;
     }
     const labelY = top + 14;
@@ -201,7 +203,13 @@ export const createDetailPane = (
     body.addChild(shown);
     const blockHeight = Math.max(NOTE_MIN_HEIGHT, shown.height);
     note = { x: PAD, y: textY, width: inner, height: blockHeight };
-    return textY + blockHeight;
+    if (!error) {
+      return textY + blockHeight;
+    }
+    const message = wrapped(label(error, tinted(TEXT_STYLES.label, PALETTE.text.error), PAD, textY + shown.height + 6,
+      0, 0), inner);
+    body.addChild(message);
+    return Math.max(textY + blockHeight, message.y + message.height);
   };
 
   /**

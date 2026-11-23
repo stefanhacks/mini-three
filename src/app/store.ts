@@ -24,6 +24,8 @@ export interface AppState {
   shared: "loading" | "ready" | "failed";
   /** The owner is logged in: notes and Known can be edited. Transient. */
   canEdit: boolean;
+  /** Why the last save of `key` failed (it was undone), until the next save or edit. Transient. */
+  saveError: { key: string; message: string } | null;
   /**
    * The entry being edited: its unsaved note text and, for recipes, its unsaved known flag (absent for items).
    * Transient: never saved, and cleared when the entry is left.

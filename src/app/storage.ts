@@ -67,6 +67,7 @@ export const fromSaved = (data: SavedData): AppState => ({
   notes: {},
   shared: "loading",
   canEdit: false,
+  saveError: null,
   editing: null,
 });
 
