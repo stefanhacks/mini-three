@@ -45,6 +45,14 @@ describe("resolveDescription", () => {
     expect(resolveDescription(2, spells).text).toBe("50 every 2 sec");
   });
 
+  it("drops spaces around line breaks, so no line starts or ends indented", () => {
+    const spells = fake({
+      descriptions: { 1: "Replaces it. \r\n\r\n\t Shares a cooldown \n of $d." },
+      durations: { 1: 3600000 },
+    });
+    expect(resolveDescription(1, spells).text).toBe("Replaces it.\n\nShares a cooldown\nof 1 hour.");
+  });
+
   it("reads other spells, scaling, arithmetic, radius and stacks", () => {
     const spells = fake({
       descriptions: { 1: "$/10;s1 rage, ${($s2/5)*$d} mana, $9s1 fire in $9a1 yd for $9d, $U doses." },

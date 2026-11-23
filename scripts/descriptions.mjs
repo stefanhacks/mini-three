@@ -272,6 +272,7 @@ export const resolveDescription = (spellId, spells) => {
   const text = resolve(description, spellId, 0)
     .replace(/\r\n?/g, "\n")
     .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
     .replace(/ {2,}/g, " ")
     .trim();
   return { text, unresolved };
