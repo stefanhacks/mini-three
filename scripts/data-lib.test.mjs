@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  classifyGatherables, locateItems, parseCsv, parseCsvRows, parseLua, readQuestieObjects, zoneNamesByCount,
+  classifyGatherables, locateItems, parseCsv, parseCsvRows, parseLua, readQuestieObjects, spellsTaughtByItems,
+  zoneNamesByCount,
 } from "./data-lib.mjs";
 
 describe("parseCsvRows", () => {
@@ -139,5 +140,23 @@ describe("locateItems and zoneNamesByCount", () => {
   it("adds up zone ids that share a name", () => {
     const names = new Map([[1, "X"], [2, "X"], [3, "Y"]]);
     expect(zoneNamesByCount(new Map([[1, 10], [2, 10], [3, 15]]), names).names).toEqual(["X", "Y"]);
+  });
+});
+
+describe("spellsTaughtByItems", () => {
+  const effects = new Map([
+    [1, { spell: 100, trigger: 6 }], // recipe item: teaches 100
+    [2, { spell: 200, trigger: 0 }], // enchant scroll: casts 200, teaches nothing
+    [3, { spell: 483, trigger: 0 }], // casts a learn spell that teaches 300
+  ]);
+  const learns = new Map([[483, [300]]]);
+
+  it("counts learn triggers and learn spells, not items that only cast the recipe", () => {
+    const links = [{ effect: 1, item: 10 }, { effect: 2, item: 20 }, { effect: 3, item: 30 }];
+    expect(spellsTaughtByItems(effects, links, learns)).toEqual(new Set([100, 300]));
+  });
+
+  it("ignores links to effects missing from the table", () => {
+    expect(spellsTaughtByItems(effects, [{ effect: 404, item: 40 }], learns)).toEqual(new Set());
   });
 });

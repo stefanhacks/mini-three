@@ -7,7 +7,8 @@ import readline from "node:readline";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
-  CLOTH_KEY, classifyGatherables, locateItems, parseCsv, readQuestieObjects, toInt, zoneNamesByCount,
+  CLOTH_KEY, SPELL_EFFECT_LEARN_SPELL, classifyGatherables, locateItems, parseCsv, readQuestieObjects,
+  spellsTaughtByItems, toInt, zoneNamesByCount,
 } from "./data-lib.mjs";
 
 // Pinned inputs: change them on purpose, and the output changes with them.
@@ -52,7 +53,7 @@ const PROFESSION_CATEGORIES = new Set([9, 11]);
 
 const TABLES = [
   "SkillLine", "SkillLineAbility", "TradeSkillCategory", "SpellName", "SpellReagents", "SpellEffect",
-  "Item", "ItemSparse", "ItemModifiedAppearance", "ItemAppearance",
+  "Item", "ItemSparse", "ItemModifiedAppearance", "ItemAppearance", "ItemEffect", "ItemXItemEffect",
 ];
 
 const SPELL_EFFECT_CREATE_ITEM = 24;
@@ -280,7 +281,7 @@ const byId = (rows) => new Map(rows.map((row) => [row.ID, row]));
 const main = async () => {
   const tables = await Promise.all(TABLES.map(downloadTable));
   const [skillLines, abilities, tradeCategories, spellNames, reagentRows, effects, itemRows, sparseRows,
-    appearanceLinks, appearances] = tables;
+    appearanceLinks, appearances, itemEffects, itemEffectLinks] = tables;
   const icons = await loadIconNames();
 
   // Professions: top-level skill lines (not the per-tier children) with a profession name and category.
@@ -304,6 +305,22 @@ const main = async () => {
     }
   }
   const categoryById = byId(tradeCategories);
+
+  // Recipes some item teaches (patterns, plans, formulas...). The others have no item: a trainer teaches them, or
+  // they come with the profession. Trainer lists live on the server, so the client tables can't say which trainer.
+  const learns = new Map();
+  for (const effect of effects.filter((row) => toInt(row.Effect) === SPELL_EFFECT_LEARN_SPELL)) {
+    const spell = toInt(effect.SpellID);
+    learns.set(spell, [...(learns.get(spell) ?? []), toInt(effect.EffectTriggerSpell)]);
+  }
+  const itemEffectById = new Map(itemEffects.map((row) => [
+    toInt(row.ID), { spell: toInt(row.SpellID), trigger: toInt(row.TriggerType) },
+  ]));
+  const taughtByItem = spellsTaughtByItems(
+    itemEffectById,
+    itemEffectLinks.map((row) => ({ effect: toInt(row.ItemEffectID), item: toInt(row.ItemID) })),
+    learns,
+  );
 
   // Recipes: one per (profession, spell) ability row that has reagents or creates an item.
   const recipes = [];
@@ -340,6 +357,7 @@ const main = async () => {
       minSkill: toInt(ability.MinSkillLineRank),
       trivialLow: toInt(ability.TrivialSkillLineRankLow),
       trivialHigh: toInt(ability.TrivialSkillLineRankHigh),
+      source: taughtByItem.has(toInt(ability.Spell)) ? "item" : "trainer",
     };
     if (!spellNameById.has(ability.Spell)) {
       warnings.push(`spell ${ability.Spell} has no name`);
@@ -506,6 +524,8 @@ const main = async () => {
   const unmatchedNames = unmatched.map((rule) => rule.node ?? rule.ids.join("/")).join(", ");
   log(`  rules matching no object with spawns: ${unmatchedNames || "none"}`);
   log(`  spawn zones without an AreaTable name, skipped: ${[...unnamedZones].join(", ") || "none"}`);
+  const fromItems = recipes.filter((recipe) => recipe.source === "item").length;
+  log(`\nrecipes taught by an item ${fromItems}, by a trainer or with the profession ${recipes.length - fromItems}`);
   log(`\nrecipes ${recipes.length}, items ${itemIds.size}, items without icon ${withoutIcon}`);
 
   // Validation of the gatherable assumptions against the live data.
