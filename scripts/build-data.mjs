@@ -44,6 +44,10 @@ const QUESTIE_SOURCE_FILES = {
 };
 // Capitals (AreaTable names, as QuestieDB places their NPCs) and the zone around each. A recipe sold both in a capital
 // and elsewhere in its zone lists only the zone.
+// QuestieDB zone ids that are no AreaTable id (its own ids for some instances), with the client's name for them.
+const QUESTIE_ZONE_NAMES = new Map([
+  [1585, "Blackrock Depths"], // AreaTable 1584
+]);
 const CAPITAL_ZONES = new Map([
   ["Orgrimmar", "Durotar"],
   ["Thunder Bluff", "Mulgore"],
@@ -664,7 +668,7 @@ const sourceRecipes = (recipes, taughtByItem, [itemTexts, npcTexts, questTexts],
     items: readQuestieTable(...itemTexts, "item", QUESTIE_ITEM_FIELDS),
     npcs: readQuestieTable(...npcTexts, "npc", QUESTIE_NPC_FIELDS),
     quests: readQuestieTable(...questTexts, "quest", QUESTIE_QUEST_FIELDS),
-  }, (zone) => areaNames.get(zone), CAPITAL_ZONES);
+  }, (zone) => areaNames.get(zone) ?? QUESTIE_ZONE_NAMES.get(zone), CAPITAL_ZONES);
 };
 
 // Fish locations: the zones whose fishing loot has them (CMaNGOS, by AreaTable id, subzones counted as their zone),

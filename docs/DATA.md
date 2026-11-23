@@ -64,8 +64,8 @@ It then prints a report. These lines are **expected**, but read them for anythin
 - `herbalism without locations`, `fish without locations`: no source knows the place. A new entry here after an update may mean a rule needs a new node name.
 - `rule items that are no kept Herbalism gatherable` and `allow-listed items no kept recipe uses`: hand-written ids no kept recipe needs. Left out on purpose.
 - `rules matching no object with spawns`: should be `none`. A name here means a node was renamed in QuestieDB.
-- `with no known vendor, quest or drop N`: recipe items QuestieDB has no source for (57 today, mostly Forever-only). They show plain "Recipe". A big jump means a Questie file changed format or moved.
-- `recipe vendor zones without an AreaTable name`: `1585` today. `recipe vendors missing from the NPC table`: should be `none`.
+- `with no known vendor, quest or drop N`: recipe items QuestieDB has no source for (55 today, mostly Forever-only). They show plain "Recipe". A big jump means a Questie file changed format or moved.
+- `recipe vendor zones without an AreaTable name`: should be `none`. QuestieDB gives some instances ids of its own (Blackrock Depths is 1585, not 1584): add a new one to `QUESTIE_ZONE_NAMES` with the client's name. `recipe vendors missing from the NPC table`: should be `none`.
 - `learnable level ... unknown N`: recipes with no `learn`. They stay and show `??`. Candidates for `LEARN_BY_HAND`. A big jump means a trainer or item source broke.
 - `items with a "Use:" text ...; recipes whose item has none`: transmutes, dyes, oils and a few more. Expected.
 - `reagents whose bag family disagrees`: should be empty.
