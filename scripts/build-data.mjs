@@ -112,7 +112,8 @@ const FISHING_ITEMS = [
   13889, // Raw Whitescale Salmon
   21071, // Raw Sagefish
   21153, // Raw Greater Sagefish
-  // Added in the specialize work: used by Cooking but missing here. Stage 3 checks them against fishing loot.
+  // Used by Cooking but missing from the first list. All four turn up in the CMaNGOS fishing loot or pools; the
+  // report's "pet food type fish" checklist is how to spot fish that are still missing.
   6522, // Deviate Fish
   13755, // Raw Winter Squid
   13890, // Raw Plated Armorfish
@@ -330,11 +331,14 @@ const main = async () => {
   const learnOrigin = new Map();
   const learnLevel = (ability, key) => {
     const spell = toInt(ability.Spell);
+    // Item and trainer levels first. "Comes with the profession" (AcquireMethod 1) only says 1 when nothing else does.
     const candidates = [
       ...(taughtByItem.get(spell) ?? []).map((item) => ["item", requiredRankByItem.get(item) ?? 0]),
       ["trainer", trainerLevels.get(spell) ?? 0],
-      ["profession", toInt(ability.AcquireMethod) === ACQUIRE_WITH_PROFESSION ? 1 : 0],
-    ].filter(([, level]) => level > 0).sort(([, a], [, b]) => a - b);
+    ].filter(([, level]) => level > 0).sort(([, x], [, y]) => x - y);
+    if (candidates.length === 0 && toInt(ability.AcquireMethod) === ACQUIRE_WITH_PROFESSION) {
+      candidates.push(["profession", 1]);
+    }
     if (candidates.length === 0) {
       return undefined;
     }
@@ -374,7 +378,6 @@ const main = async () => {
       name: spellNameById.get(ability.Spell) ?? `Spell ${ability.Spell}`,
       profession: profession.key,
       category: toInt(ability.TradeSkillCategoryID),
-      minSkill: toInt(ability.MinSkillLineRank),
       trivialLow: toInt(ability.TrivialSkillLineRankLow),
       trivialHigh: toInt(ability.TrivialSkillLineRankHigh),
       source: taughtByItem.has(toInt(ability.Spell)) ? "item" : "trainer",
@@ -459,7 +462,7 @@ const main = async () => {
       return text;
     }).filter(Boolean);
     if (texts.length > 0) {
-      recipe.description = texts.join("\n");
+      recipe.description = texts;
     } else {
       undescribed.push(recipe.name);
     }
@@ -615,6 +618,8 @@ const main = async () => {
         const name = areaNames.get(zoneOf(zone));
         if (name) {
           spawns.set(name, (spawns.get(name) ?? 0) + count);
+        } else {
+          unnamedZones.add(zone);
         }
       }
     }

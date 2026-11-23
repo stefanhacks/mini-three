@@ -80,7 +80,8 @@ const groupBy = (rows, key) => {
  * Chance in percent of each item in one loot entry, following references. Rows use the mangos loot columns: `item`,
  * `ChanceOrQuestChance`, `groupid`, `mincountOrRef` (negative: a reference_loot_template entry, rolled with the row's
  * chance). In a group (groupid > 0) one item drops: rows with chance 0 share what the others leave equally. Rows in
- * group 0 with chance 0 never drop. Returns Map<item, chance>, the best chance when an item shows up twice.
+ * group 0 with chance 0 never drop, and neither do quest-only rows (negative chance). Returns Map<item, chance>,
+ * the best chance when an item shows up twice.
  */
 export const lootChances = (rows, referencesById, scale = 1, depth = 0, out = new Map()) => {
   if (depth > 5) {
@@ -91,6 +92,9 @@ export const lootChances = (rows, referencesById, scale = 1, depth = 0, out = ne
     const explicit = members.reduce((sum, row) => sum + Math.max(0, row.ChanceOrQuestChance), 0);
     const shared = members.filter((row) => row.ChanceOrQuestChance === 0).length;
     for (const row of members) {
+      if (row.ChanceOrQuestChance < 0) {
+        continue;
+      }
       const chance = row.ChanceOrQuestChance > 0 ? row.ChanceOrQuestChance
         : group > 0 && shared > 0 ? Math.max(0, 100 - explicit) / shared : 0;
       if (chance <= 0) {

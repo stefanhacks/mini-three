@@ -228,6 +228,11 @@ export const resolveDescription = (spellId, spells) => {
       }
       if (rest.startsWith("{")) {
         const end = text.indexOf("}", pos);
+        if (end === -1) {
+          unresolved.push(text.slice(pos - 1));
+          out += text.slice(pos - 1);
+          break;
+        }
         const expression = text.slice(pos + 1, end);
         let failed = false;
         const numeric = expression.replace(/\$/g, "\u0000").split("\u0000").map((part, i) => {

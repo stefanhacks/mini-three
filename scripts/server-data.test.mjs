@@ -35,6 +35,11 @@ describe("lootChances", () => {
     const references = new Map([[7, [loot(7, 20, 30), loot(7, 10, 100)]]]);
     expect(lootChances(rows, references)).toEqual(new Map([[10, 50], [11, 30], [12, 30], [20, 15]]));
   });
+
+  it("ignores quest-only rows, which have a negative chance, even in a group that shares its leftover", () => {
+    const rows = [loot(1, 10, -30, 1), loot(1, 11, 0, 1), loot(1, 12, 0, 1)];
+    expect(lootChances(rows, new Map())).toEqual(new Map([[11, 50], [12, 50]]));
+  });
 });
 
 describe("fishingAreas and poolYields", () => {

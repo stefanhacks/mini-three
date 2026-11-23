@@ -1,5 +1,5 @@
 import type { ProfessionKey } from "../data";
-import { PROFESSION_KEYS } from "../data/model";
+import { PROFESSION_KEYS } from "../data/keys";
 import type { AppState, Store } from "./store";
 
 export const STORAGE_KEY = "hanto:v1";

@@ -189,11 +189,12 @@ export const createDetailPane = (
    * The created item's "Use:" text, green as in the game's tooltip, wrapped at the pane width. Returns the top the
    * notes block should start from (unchanged when there is no description).
    */
-  const useBlock = (top: number, description: string | undefined): number => {
+  const useBlock = (top: number, description: string[] | undefined): number => {
     if (!description) {
       return top;
     }
-    const text = label(`Use: ${description}`, tinted(TEXT_STYLES.body, QUALITY_COLORS.uncommon), PAD, top + 8, 0, 0);
+    const text = label(description.map((use) => `Use: ${use}`).join("\n"),
+      tinted(TEXT_STYLES.body, QUALITY_COLORS.uncommon), PAD, top + 8, 0, 0);
     text.style.wordWrap = true;
     text.style.wordWrapWidth = inner;
     body.addChild(text);

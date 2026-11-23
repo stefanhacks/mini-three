@@ -11,9 +11,6 @@ export const PROFESSION_ICONS: Record<ProfessionKey, string> = {
   "first-aid": "spell_holy_sealofsacrifice",
 };
 
-/** Every profession, in tab order (the data's order). */
-export const PROFESSION_KEYS: ProfessionKey[] = professions.map((profession) => profession.key);
-
 export const professionByKey = new Map<ProfessionKey, Profession>(professions.map((p) => [p.key, p]));
 
 export const recipesByProfession = new Map<ProfessionKey, Recipe[]>();

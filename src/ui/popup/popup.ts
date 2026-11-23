@@ -2,8 +2,9 @@ import { Container, Graphics, Rectangle, type Ticker } from "pixi.js";
 import { cancelEdit, saveEdit, setKnownDraft, startEdit } from "../../app/notesEdit";
 import type { AppState, Store } from "../../app/store";
 import type { Profession, ProfessionKey, Recipe } from "../../data";
+import { PROFESSION_KEYS } from "../../data/keys";
 import {
-  PROFESSION_ICONS, PROFESSION_KEYS, itemOf, locationsOf, professionByKey, recipeKey, recipesByProfession,
+  PROFESSION_ICONS, itemOf, locationsOf, professionByKey, recipeKey, recipesByProfession,
 } from "../../data/model";
 import {
   type ArtKit, FRAME_TITLE_HEIGHT, PALETTE, SHADOW_SPREAD, TAB_GLOW, TEXT_STYLES, createNineSlice,

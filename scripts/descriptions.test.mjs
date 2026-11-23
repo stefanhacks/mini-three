@@ -69,6 +69,11 @@ describe("resolveDescription", () => {
     expect(resolveDescription(4, spells).text).toBe("Gain 56 Stamina.");
   });
 
+  it("reports an unclosed ${ instead of looping or reading past it", () => {
+    const spells = fake({ descriptions: { 1: "Gain ${12 mana" }, effects: {} });
+    expect(resolveDescription(1, spells)).toEqual({ text: "Gain ${12 mana", unresolved: ["${12 mana"] });
+  });
+
   it("lists what it can't resolve instead of guessing", () => {
     const spells = fake({ descriptions: { 1: "Gain $7s2 skill for $7d and $x1. $@spelldesc404" }, effects: {} });
     expect(resolveDescription(1, spells).unresolved).toEqual(["$7s2", "$7d", "$x1.", "$@spelldesc404"]);
