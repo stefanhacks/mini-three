@@ -425,52 +425,74 @@ const spear = (ctx: DrawContext, x1: number, y1: number, x2: number, y2: number)
   }
 };
 
-/** A painted diamond shield: gold rim, `base` colour, a pale centre stripe, and optionally green eyes. */
+/** The four corners of a `w` by `h` box at `(x, y)` in a rotated frame, for `poly`. */
+const box = (pt: ReturnType<typeof rotator>, x: number, y: number, w: number, h: number): number[] =>
+  [...pt(x, y), ...pt(x + w, y), ...pt(x + w, y + h), ...pt(x, y + h)];
+
+/**
+ * A painted diamond shield turned by `angle`: gold rim, `base` colour, a pale centre stripe, and optionally green
+ * eyes.
+ */
 const shield = (
-  ctx: DrawContext, x: number, y: number, w: number, h: number, base: number, stripe: number, eyes = false,
+  ctx: DrawContext, x: number, y: number, w: number, h: number, angle: number, base: number, stripe: number,
+  eyes = false,
 ): void => {
-  const diamond = (s: number, sw = s) => [x, y - h * s, x + w * sw, y, x, y + h * s, x - w * sw, y];
+  const pt = rotator(x, y, angle);
+  const diamond = (s: number, sw = s) => [...pt(0, -h * s), ...pt(w * sw, 0), ...pt(0, h * s), ...pt(-w * sw, 0)];
   ctx.g.poly(diamond(1)).fill(0xd8a850);
   ctx.g.poly(diamond(0.86)).fill(base);
   ctx.g.poly(diamond(0.86, 0.22)).fill(stripe);
   if (eyes) {
-    ctx.g.poly([x - w * 0.5, y - h * 0.2, x - w * 0.22, y - h * 0.12, x - w * 0.44, y - h * 0.07])
-      .poly([x + w * 0.5, y - h * 0.2, x + w * 0.22, y - h * 0.12, x + w * 0.44, y - h * 0.07]).fill(0x30c890);
+    ctx.g.poly([...pt(-w * 0.5, -h * 0.2), ...pt(-w * 0.22, -h * 0.12), ...pt(-w * 0.44, -h * 0.07)])
+      .poly([...pt(w * 0.5, -h * 0.2), ...pt(w * 0.22, -h * 0.12), ...pt(w * 0.44, -h * 0.07)]).fill(0x30c890);
   }
 };
 
-/** A small glowing vial hanging on a string. */
-const bottle = (ctx: DrawContext, x: number, y: number, color: number): void => {
-  ctx.g.moveTo(x, y - 40).lineTo(x, y).stroke({ width: 1.5, color: 0x8a7a68 });
-  glow(ctx, x, y + 12, 44, color, 0.5);
-  ctx.g.rect(x - 7, y + 4, 14, 18).fill(color);
-  ctx.g.rect(x - 3, y, 6, 5).fill(0xd8d0c0);
-  ctx.g.rect(x - 5, y + 6, 3, 12).fill({ color: 0xffffff, alpha: 0.4 });
+/** A small glowing vial on a string from `(x, y)`, swung by `angle` around that point. */
+const bottle = (ctx: DrawContext, x: number, y: number, angle: number, color: number): void => {
+  const pt = rotator(x, y, angle);
+  const [cx, cy] = pt(0, 52);
+  ctx.g.moveTo(x, y).lineTo(...pt(0, 40)).stroke({ width: 1.5, color: 0x8a7a68 });
+  glow(ctx, cx, cy, 44, color, 0.5);
+  ctx.g.poly(box(pt, -7, 44, 14, 18)).fill(color);
+  ctx.g.poly(box(pt, -3, 40, 6, 5)).fill(0xd8d0c0);
+  ctx.g.poly(box(pt, -5, 46, 3, 12)).fill({ color: 0xffffff, alpha: 0.4 });
 };
 
-/** A stitched burlap doll hanging on a string, with a pin through its head. */
-const doll = (ctx: DrawContext, x: number, y: number, size: number): void => {
+/** A stitched burlap doll on a string from `(x, y)`, swung by `angle`, with a pin through its head. */
+const doll = (ctx: DrawContext, x: number, y: number, size: number, angle: number): void => {
   const burlap = 0x7a5a3a;
-  ctx.g.moveTo(x, y - size * 1.4).lineTo(x, y).stroke({ width: 1.5, color: 0x8a7a68 });
-  ctx.g.circle(x, y, size * 0.35).fill(burlap);
-  ctx.g.rect(x - size * 0.22, y + size * 0.3, size * 0.44, size * 0.6)
-    .rect(x - size * 0.7, y + size * 0.4, size * 1.4, size * 0.14)
-    .rect(x - size * 0.22, y + size * 0.85, size * 0.14, size * 0.4)
-    .rect(x + size * 0.08, y + size * 0.85, size * 0.14, size * 0.4).fill(burlap);
-  ctx.g.moveTo(x - size * 0.2, y - size * 0.1).lineTo(x - size * 0.06, y + size * 0.04)
-    .moveTo(x - size * 0.06, y - size * 0.1).lineTo(x - size * 0.2, y + size * 0.04)
-    .moveTo(x + size * 0.06, y - size * 0.1).lineTo(x + size * 0.2, y + size * 0.04)
-    .moveTo(x + size * 0.2, y - size * 0.1).lineTo(x + size * 0.06, y + size * 0.04)
-    .stroke({ width: 1.5, color: 0x1a0a06 });
-  ctx.g.moveTo(x, y).lineTo(x + size * 0.5, y - size * 0.6).stroke({ width: 1.5, color: 0xc8ccd4 });
-  ctx.g.circle(x + size * 0.5, y - size * 0.6, 3).fill(0xa040c0);
+  const pt = rotator(x, y, angle);
+  const head = size * 1.4;
+  const [hx, hy] = pt(0, head);
+  ctx.g.moveTo(x, y).lineTo(hx, hy).stroke({ width: 1.5, color: 0x8a7a68 });
+  ctx.g.circle(hx, hy, size * 0.35).fill(burlap);
+  ctx.g.poly(box(pt, -size * 0.22, head + size * 0.3, size * 0.44, size * 0.6))
+    .poly(box(pt, -size * 0.7, head + size * 0.4, size * 1.4, size * 0.14))
+    .poly(box(pt, -size * 0.22, head + size * 0.85, size * 0.14, size * 0.4))
+    .poly(box(pt, size * 0.08, head + size * 0.85, size * 0.14, size * 0.4)).fill(burlap);
+  const cross = (ex: number) => {
+    ctx.g.moveTo(...pt(ex - size * 0.07, head - size * 0.1)).lineTo(...pt(ex + size * 0.07, head + size * 0.04))
+      .moveTo(...pt(ex + size * 0.07, head - size * 0.1)).lineTo(...pt(ex - size * 0.07, head + size * 0.04));
+  };
+  cross(-size * 0.13);
+  cross(size * 0.13);
+  ctx.g.stroke({ width: 1.5, color: 0x1a0a06 });
+  const [px, py] = pt(size * 0.5, head - size * 0.6);
+  ctx.g.moveTo(hx, hy).lineTo(px, py).stroke({ width: 1.5, color: 0xc8ccd4 });
+  ctx.g.circle(px, py, 3).fill(0xa040c0);
 };
 
-/** A hanging charm: a rope web behind crossed spears, painted shields and vials. `flip` mirrors it. */
-const charm = (ctx: DrawContext, x: number, y: number, size: number, flip: 1 | -1): void => {
+/**
+ * A hanging charm: a rope web behind crossed spears, painted shields and vials, each piece tilted a little at random
+ * so nothing sits square. `flip` mirrors it.
+ */
+const charm = (ctx: DrawContext, random: Random, x: number, y: number, size: number, flip: 1 | -1): void => {
+  const tilt = (max: number) => (random() - 0.5) * 2 * max;
   const spokes = 8;
+  const turn = tilt(0.3);
   const at = (k: number, r: number) => {
-    const a = (k * Math.PI * 2) / spokes + 0.2;
+    const a = (k * Math.PI * 2) / spokes + turn;
     return [x + Math.cos(a) * r, y + Math.sin(a) * r];
   };
   for (let k = 0; k < spokes; k++) {
@@ -486,16 +508,17 @@ const charm = (ctx: DrawContext, x: number, y: number, size: number, flip: 1 | -
     }
   });
   ctx.g.stroke({ width: 1.5, color: 0x6a5a48, alpha: 0.7 });
-  spear(ctx, x - size * 0.9, y + size * 0.9, x + size * 0.95, y - size * 0.85);
-  spear(ctx, x + size * 0.9, y + size * 0.9, x - size * 0.95, y - size * 0.85);
+  const j = () => tilt(size * 0.1);
+  spear(ctx, x - size * 0.9 + j(), y + size * 0.9 + j(), x + size * 0.95 + j(), y - size * 0.85 + j());
+  spear(ctx, x + size * 0.9 + j(), y + size * 0.9 + j(), x - size * 0.95 + j(), y - size * 0.85 + j());
   tusk(ctx, x - size * 0.55, y + size * 0.55, size * 0.5, 1, 0xe8dccc);
   tusk(ctx, x + size * 0.55, y + size * 0.55, size * 0.5, -1, 0xe8dccc);
-  shield(ctx, x + flip * size * 0.55, y - size * 0.45, size * 0.2, size * 0.32, 0x8a4aa8, 0xf2e8dc);
-  shield(ctx, x - flip * size * 0.5, y - size * 0.25, size * 0.18, size * 0.28, 0xc8302a, 0xf2e8dc);
-  shield(ctx, x, y + size * 0.05, size * 0.3, size * 0.52, 0xc8302a, 0xf2e8dc, true);
-  bottle(ctx, x - flip * size * 0.85, y - size * 0.2, 0x3a5ad8);
-  bottle(ctx, x + flip * size * 0.85, y - size * 0.1, 0xa060e0);
-  bottle(ctx, x - flip * size * 0.3, y + size * 0.85, 0x40c060);
+  shield(ctx, x + flip * size * 0.55, y - size * 0.45, size * 0.2, size * 0.32, tilt(0.6), 0x8a4aa8, 0xf2e8dc);
+  shield(ctx, x - flip * size * 0.5, y - size * 0.25, size * 0.18, size * 0.28, tilt(0.6), 0xc8302a, 0xf2e8dc);
+  shield(ctx, x, y + size * 0.05, size * 0.3, size * 0.52, tilt(0.3), 0xc8302a, 0xf2e8dc, true);
+  bottle(ctx, x - flip * size * 0.85, y - size * 0.2 - 40, tilt(0.3), 0x3a5ad8);
+  bottle(ctx, x + flip * size * 0.85, y - size * 0.1 - 40, tilt(0.3), 0xa060e0);
+  bottle(ctx, x - flip * size * 0.3, y + size * 0.85 - 40, tilt(0.3), 0x40c060);
 };
 
 const jungleForest = (ctx: DrawContext): void => {
@@ -746,11 +769,11 @@ const theVoodoo = (ctx: DrawContext): void => {
   }
   glow(ctx, W * 0.12, H * 0.4, 300, 0x8a1a1a, 0.45);
   glow(ctx, W * 0.88, H * 0.44, 280, 0x8a1a1a, 0.45);
-  charm(ctx, W * 0.12, H * 0.4, 200, 1);
-  charm(ctx, W * 0.88, H * 0.44, 180, -1);
+  charm(ctx, random, W * 0.12, H * 0.4, 200, 1);
+  charm(ctx, random, W * 0.88, H * 0.44, 180, -1);
   tusk(ctx, W * 0.02, BOTTOM, 170, 1, 0xe8dccc);
   tusk(ctx, W * 0.98, BOTTOM, 170, -1, 0xe8dccc);
-  doll(ctx, W * 0.74, H * 0.8, 30);
+  doll(ctx, W * 0.74, H * 0.8 - 42, 30, 0.25);
   motes(ctx, random, 80, H * 0.3, BOTTOM, [0xffd040, 0xffffff, 0xff5a2a], 1.6);
   vignette(ctx, 0.5);
 };
