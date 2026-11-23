@@ -1,6 +1,6 @@
 # WoW: Hantō
 
-Browser game client built with Vite, TypeScript and Pixi.js (the only runtime dependency).
+Personal assistant for the WoW: Forever profession system, tuned for a specific character. Built with Vite, TypeScript and Pixi.js, with, and largely to explore, Claude AI.
 
 ## Requirements
 

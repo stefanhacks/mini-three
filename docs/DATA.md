@@ -68,6 +68,10 @@ It then prints a report. These lines are **expected**, but read them for anythin
 - `dropped N: by a named mob N (no chance known N), world N, by objects or containers only N`: 67 (30), 7 and 3 today. A jump in "no chance known" means the CMaNGOS loot tables stopped matching.
 - `with no known vendor, quest or drop N`: recipe items QuestieDB has no source for (55 today, mostly Forever-only). They show plain "Recipe". A big jump means a Questie file changed format or moved.
 - `recipe vendor zones without an AreaTable name`: should be `none`. QuestieDB gives some instances ids of its own (Blackrock Depths is 1585, not 1584): add a new one to `QUESTIE_ZONE_NAMES` with the client's name. `recipe vendors missing from the NPC table`: should be `none`.
+- `dropped by a named mob with no zone N`: 14 today, mostly dungeon and raid mobs QuestieDB has no spawns for. They show "Drop: <mob> N%" with no zone. A jump means QuestieDB's NPC spawns or zone ids changed.
+- `recipes without a yellow to grey range`: `Cleansing Stew` today (the client gives it 0 and 0). The detail pane hides the range for these. Any new name is a client data gap.
+- `categories without a TradeSkillCategory name`: should be `none`. A name here shows as "Other" in the app.
+- `items without icon N`: should be 0. A new id means its icon is missing from the listfile at `LISTFILE_TAG`: bump the tag.
 - `learnable level ... unknown N`: recipes with no `learn`. They stay and show `??`. Candidates for `LEARN_BY_HAND`. A big jump means a trainer or item source broke.
 - `items with a "Use:" text ...; recipes whose item has none`: transmutes, dyes, oils and a few more. Expected.
 - `reagents whose bag family disagrees`: should be empty.
