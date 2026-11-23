@@ -13,13 +13,22 @@ export const withNote = (notes: AppState["notes"], key: string, text: string): A
   return next;
 };
 
-/** Whether an edit of `key` may continue in `state`: the entry is still the one shown, in an open detail pane. */
+/**
+ * Whether an edit of `key` may continue in `state`: the entry is still the one shown, in an open detail pane, and the
+ * owner is still logged in.
+ */
 export const editStillValid = (state: AppState, selectedKey: string | null): boolean =>
-  state.editing !== null && state.editing.key === selectedKey && state.detailOpen;
+  state.editing !== null && state.editing.key === selectedKey && state.detailOpen && state.canEdit;
 
-/** Starts editing `key`. `isRecipe` adds the known flag to the draft, since only recipes have one. */
+/**
+ * Starts editing `key`, if the owner is logged in. `isRecipe` adds the known flag to the draft, since only recipes
+ * have one.
+ */
 export const startEdit = (store: Store, key: string, isRecipe: boolean) => {
-  const { notes, known } = store.get();
+  const { notes, known, canEdit } = store.get();
+  if (!canEdit) {
+    return;
+  }
   store.set({ editing: { key, draft: notes[key] ?? "", ...(isRecipe ? { known: known.has(key) } : {}) } });
 };
 

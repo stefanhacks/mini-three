@@ -18,17 +18,24 @@ describe("notes editing", () => {
   });
 
   it("keeps an edit only while its entry is open in the list", () => {
-    const base = { ...fromSaved(emptySaved()), detailOpen: true,
+    const base = { ...fromSaved(emptySaved()), detailOpen: true, canEdit: true,
       editing: { key: "item:1", draft: "x" } };
     expect(editStillValid(base, "item:1")).toBe(true);
     expect(editStillValid(base, "item:2")).toBe(false);
     expect(editStillValid(base, null)).toBe(false);
     expect(editStillValid({ ...base, detailOpen: false }, "item:1")).toBe(false);
     expect(editStillValid({ ...base, editing: null }, "item:1")).toBe(false);
+    expect(editStillValid({ ...base, canEdit: false }, "item:1")).toBe(false);
+  });
+
+  it("starts no edit unless the owner is logged in", () => {
+    const store = createStore(fromSaved(emptySaved()));
+    startEdit(store, "item:1", false);
+    expect(store.get().editing).toBeNull();
   });
 
   it("applies the known flag with the note on Save, and drops both on Cancel", () => {
-    const store = createStore(fromSaved(emptySaved()));
+    const store = createStore({ ...fromSaved(emptySaved()), canEdit: true });
     startEdit(store, "alchemy:7837", true);
     setKnownDraft(store, true);
     expect(store.get().known.has("alchemy:7837")).toBe(false);

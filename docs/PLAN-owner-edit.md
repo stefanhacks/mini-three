@@ -72,8 +72,8 @@ One PR (`cl-owner-edit`). Each stage ends with `npm run check`, a push, and a pa
 | # | Stage |
 |---|---|
 | 1 | Shared validation module; the function (GET, PUT, key check, conflict retry, store by context) and its tests |
-| 2 | App reads notes and flags from the server; read-only mode by default (no Edit, Known not clickable) |
-| 3 | Lock control (`zu`), login and logout; saving through the function; error and loading states; `localStorage` drops notes and Known flags |
+| 2 | App reads notes and flags from the server; read-only mode by default (no Edit, Known not clickable); `localStorage` drops notes and Known flags (moved up from stage 3: nothing reads them any more) |
+| 3 | Lock control (`zu`), login and logout; saving through the function; save errors |
 | 4 | QA on the PR preview with the preview key: visitor view with and without `zu`, owner view, two tabs editing, failed save, wrong key |
 
 ## Answered questions

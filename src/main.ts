@@ -2,6 +2,7 @@ import "./style.css";
 import { Application } from "pixi.js";
 import { syncBackHistory } from "./app/backHistory";
 import { cancelEdit, cancelEditOnLeave, saveEdit, setDraft } from "./app/notesEdit";
+import { loadShared } from "./app/shared";
 import { fromSaved, loadSaved, persist } from "./app/storage";
 import { createStore } from "./app/store";
 import { professions } from "./data";
@@ -44,6 +45,7 @@ const kit = createArtKit(app.renderer);
 const backdrop = createBackdrop(app.renderer);
 const store = createStore(fromSaved(loadSaved(new Set(professions.map((profession) => profession.key)))));
 persist(store);
+void loadShared(store);
 app.stage.addChild(backdrop.view);
 
 const notesField = createNotesField({

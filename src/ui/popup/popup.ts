@@ -344,13 +344,18 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   /** Rebuilds the detail pane from the store: the entry, its saved note, and the textarea's room while editing. */
   const showDetail = () => {
     const state = store.get();
-    const { selection, known, notes } = state;
+    const { selection, known, notes, shared, canEdit } = state;
     const key = selectionKey(selection);
     const editing = shownEdit(state);
-    // While editing, the checkbox shows the draft's known flag; otherwise the saved one.
-    const isKnown = editing?.known !== undefined ? editing.known
-      : selection?.kind === "recipe" && known.has(recipeKey(selection.recipe));
-    detail.show(selection, isKnown, key ? notes[key] ?? "" : "", editing ? editHeight : null);
+    detail.show(selection, {
+      // While editing, the checkbox shows the draft's known flag; otherwise the saved one.
+      known: editing?.known !== undefined ? editing.known
+        : selection?.kind === "recipe" && known.has(recipeKey(selection.recipe)),
+      note: key ? notes[key] ?? "" : "",
+      notes: shared,
+      canEdit,
+      editHeight: editing ? editHeight : null,
+    });
   };
 
   /** Sizes the textarea to its text, within the minimum and maximum. True when its height changed. */

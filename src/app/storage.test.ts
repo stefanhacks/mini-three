@@ -6,9 +6,7 @@ const valid = new Set(["alchemy", "herbalism", "cooking"]);
 const saved: SavedData = {
   active: "herbalism",
   collapsed: ["herbalism:gathered"],
-  known: ["alchemy:101", "herbalism:7"],
   knownOnly: ["alchemy"],
-  notes: { "alchemy:101": "buy vials", "item:2770": "Elwynn mines" },
 };
 
 describe("saved state", () => {
@@ -31,48 +29,27 @@ describe("saved state", () => {
       version: 1,
       active: "basketweaving",
       collapsed: ["a", 3],
-      known: ["alchemy:1", "basketweaving:2", "nonsense", 9],
       knownOnly: ["cooking", "basketweaving", 3, "cooking"],
-      notes: {
-        "alchemy:1": "ok", "basketweaving:2": "gone", "item:5": "kept", "item:x": "bad", "herbalism:3": 4,
-        "cooking:9": "",
-      },
     });
-    expect(parse(raw, valid)).toEqual({
-      active: "alchemy",
-      collapsed: ["a"],
-      known: ["alchemy:1"],
-      knownOnly: ["cooking"],
-      notes: { "alchemy:1": "ok", "item:5": "kept" },
-    });
+    expect(parse(raw, valid)).toEqual({ active: "alchemy", collapsed: ["a"], knownOnly: ["cooking"] });
   });
 
-  it("reads saves from the profession picker days: drops the choice, keeps the five professions' notes", () => {
+  it("ignores what older saves held: notes, Known flags and the profession picker's choice", () => {
     const raw = JSON.stringify({
       version: 1,
       chosen: ["mining", "herbalism"],
-      active: "mining",
-      collapsed: [],
-      known: ["mining:2657", "herbalism:7"],
-      knownOnly: false,
-      notes: { "mining:2657": "smelt", "herbalism:7": "keep", "item:2770": "kept too" },
-    });
-    expect(parse(raw, valid)).toEqual({
-      active: "alchemy",
+      active: "herbalism",
       collapsed: [],
       known: ["herbalism:7"],
       knownOnly: [],
       notes: { "herbalism:7": "keep", "item:2770": "kept too" },
     });
+    expect(parse(raw, valid)).toEqual({ active: "herbalism", collapsed: [], knownOnly: [] });
+    expect(JSON.parse(serialize(parse(raw, valid)))).not.toHaveProperty("notes");
   });
 
   it("reads the old shared Known only as on for the saved active profession only", () => {
     expect(parse(JSON.stringify({ ...saved, version: 1, knownOnly: true }), valid).knownOnly).toEqual(["herbalism"]);
     expect(parse(JSON.stringify({ ...saved, version: 1, knownOnly: false }), valid).knownOnly).toEqual([]);
-  });
-
-  it("caps note length", () => {
-    const raw = JSON.stringify({ ...saved, version: 1, notes: { "item:1": "x".repeat(5000) } });
-    expect(parse(raw, valid).notes["item:1"]).toHaveLength(1000);
   });
 });
