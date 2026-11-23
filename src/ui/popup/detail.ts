@@ -247,7 +247,7 @@ export const createDetailPane = (
     });
   };
 
-  /** "Learned from", wrapped beside its label (a recipe item's vendor zones can take a few lines). Returns the y under. */
+  /** "Learned from", wrapped beside its label (vendor zones can take a few lines). Returns the y under it. */
   const learnedFromBlock = (recipe: Recipe, top: number): number => {
     const sourceLabel = label("Learned from:", TEXT_STYLES.label, PAD, top);
     const sourceX = PAD + sourceLabel.width + 6;
