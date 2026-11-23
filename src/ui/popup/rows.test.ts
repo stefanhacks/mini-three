@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { Item, Profession, Recipe } from "../../data";
 import { buildRows } from "./rows";
 
-const recipe = (id: number, category: number, yellow: number, name: string): Recipe => ({
+const recipe = (id: number, category: number, yellow: number, name: string, learn?: number): Recipe => ({
   id, name, profession: "herbalism", category, minSkill: 1, trivialLow: yellow, trivialHigh: yellow + 40,
-  source: "trainer", reagents: [],
+  source: "trainer", reagents: [], ...(learn !== undefined ? { learn } : {}),
 });
 
 const herbalism: Profession = {
@@ -21,6 +21,7 @@ const sources = {
   recipes: [recipe(10, 1, 50, "Smelt Tin"), recipe(11, 1, 1, "Smelt Copper")],
   itemOf: (id: number): Item => ({ name: names[id] ?? "?", quality: 1, icon: null }),
   recipeKey: (r: Recipe) => `herbalism:${r.id}`,
+  zonesOf: (id: number): string[] => (id === 3 ? ["Mulgore", "Dun Morogh"] : []),
 };
 
 const none = { known: new Set<string>(), knownOnly: false };
@@ -56,6 +57,14 @@ describe("buildRows", () => {
       .toEqual(["header", "item", "item"]);
   });
 
+  it("orders recipes by learnable level, those without one by yellow, then yellow, then name", () => {
+    const recipes = [recipe(1, 1, 60, "B", 40), recipe(2, 1, 55, "Unknown"), recipe(3, 1, 45, "A", 40),
+      recipe(4, 1, 20, "First", 1)];
+    expect(buildRows(herbalism, new Set(), { ...sources, recipes }, none)
+      .flatMap((row) => row.kind === "recipe" ? [row.recipe.name] : []))
+      .toEqual(["First", "A", "B", "Unknown"]);
+  });
+
   describe("with a query", () => {
     const labels = (rows: ReturnType<typeof buildRows>) => rows.map((row) => row.kind === "header" ? `# ${row.label}`
       : row.kind === "item" ? names[row.itemId] : row.recipe.name);
@@ -79,6 +88,11 @@ describe("buildRows", () => {
     it("matches a recipe by its reagents, and gatherables by their own name", () => {
       expect(labels(buildRows(herbalism, new Set(), withReagents, { ...none, query: "copper" })))
         .toEqual(["# Gathered", "Copper Ore", "# Smelting", "Fundição Élfica"]);
+    });
+
+    it("matches gatherables by the zones they are found in, not recipes by their reagents' zones", () => {
+      expect(labels(buildRows(herbalism, new Set(), withReagents, { ...none, query: "mulgore" })))
+        .toEqual(["# Gathered", "Copper Ore"]);
     });
 
     it("shows matches in collapsed sections, and still applies known only", () => {

@@ -3,7 +3,7 @@ import { cancelEdit, saveEdit, setKnownDraft, startEdit } from "../../app/notesE
 import type { AppState, Store } from "../../app/store";
 import type { Profession, ProfessionKey, Recipe } from "../../data";
 import {
-  PROFESSION_ICONS, PROFESSION_KEYS, itemOf, professionByKey, recipeKey, recipesByProfession,
+  PROFESSION_ICONS, PROFESSION_KEYS, itemOf, locationsOf, professionByKey, recipeKey, recipesByProfession,
 } from "../../data/model";
 import {
   type ArtKit, FRAME_TITLE_HEIGHT, PALETTE, SHADOW_SPREAD, TAB_GLOW, TEXT_STYLES, createNineSlice,
@@ -500,7 +500,7 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   /** Rebuilds the list rows from the store; a new profession or query goes back to the top. */
   const renderList = (profession: Profession, recipes: Recipe[], state: AppState): string | null => {
     const query = searchQuery(state);
-    const rows = buildRows(profession, state.collapsed, { recipes, itemOf, recipeKey },
+    const rows = buildRows(profession, state.collapsed, { recipes, itemOf, recipeKey, zonesOf: locationsOf },
       { known: state.known, knownOnly: state.knownOnly, query });
     list.setRows(rows, renderedProfession !== profession.key || renderedQuery !== query);
     renderedProfession = profession.key;

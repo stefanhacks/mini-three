@@ -215,9 +215,10 @@ export const createDetailPane = (
     const profession = professionByKey.get(recipe.profession);
     const created = recipe.item ? itemOf(recipe.item) : null;
     const editing = editHeight !== null;
-    // Most recipes are learnable at skill 1; the yellow and grey thresholds say when it is worth crafting.
+    // When it can be learned, then the yellow and grey thresholds that say when it is worth crafting.
     const subtitle = [
-      `${profession?.name ?? ""}${recipe.minSkill > 1 ? ` ${recipe.minSkill}` : ""}`,
+      profession?.name ?? "",
+      recipe.learn !== undefined ? `learn ${recipe.learn}` : "",
       recipe.trivialLow > 0 ? `yellow ${recipe.trivialLow}, grey ${recipe.trivialHigh}` : "",
       recipe.count && recipe.count > 1 ? `creates ${recipe.count}` : "",
     ].filter(Boolean).join("  ·  ");
