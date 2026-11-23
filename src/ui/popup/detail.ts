@@ -84,8 +84,8 @@ export const selectionKey = (selection: Selection): string | null => !selection 
 
 /**
  * The right-hand pane, top to bottom: heading (icon, name, subtitle, and Known for recipes), divider, the note as
- * plain text with an Edit button, then the recipe's reagents or the item's "Used in" list. Content taller than the
- * pane scrolls (drag, fling, wheel).
+ * plain text with an Edit button, then the recipe's source and reagents or the item's "Used in" list. Content
+ * taller than the pane scrolls (drag, fling, wheel).
  */
 export const createDetailPane = (
   kit: ArtKit, width: number, height: number, ticker: Ticker, handlers: DetailHandlers,
@@ -221,7 +221,11 @@ export const createDetailPane = (
       body.addChild(at(knownBox.view, PAD + inner - 72, PAD + 2));
     }
 
-    const top = noteBlock(underDivider, text, editHeight) + SECTION_GAP;
+    const sourceY = noteBlock(underDivider, text, editHeight) + SECTION_GAP;
+    const sourceLabel = label("Learned from:", TEXT_STYLES.label, PAD, sourceY);
+    body.addChild(sourceLabel, label(recipe.source === "item" ? "Recipe item" : "Trainer", TEXT_STYLES.body,
+      PAD + sourceLabel.width + 6, sourceY));
+    const top = sourceY + 14 + SECTION_GAP;
     body.addChild(label("Reagents:", TEXT_STYLES.label, PAD, top));
     const columns = Math.max(2, Math.floor(inner / REAGENT_COLUMN));
     const column = Math.floor(inner / columns);

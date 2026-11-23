@@ -3,7 +3,8 @@ import type { Item, Profession, Recipe } from "../../data";
 import { buildRows } from "./rows";
 
 const recipe = (id: number, category: number, yellow: number, name: string): Recipe => ({
-  id, name, profession: "mining", category, minSkill: 1, trivialLow: yellow, trivialHigh: yellow + 40, reagents: [],
+  id, name, profession: "mining", category, minSkill: 1, trivialLow: yellow, trivialHigh: yellow + 40,
+  source: "trainer", reagents: [],
 });
 
 const mining: Profession = {

@@ -71,6 +71,9 @@ export interface Recipe {
   minSkill: number;
   trivialLow: number;
   trivialHigh: number;
+  // "item" when a recipe item (pattern, plans, formula...) teaches it. "trainer" otherwise: a trainer teaches it or it
+  // comes with the profession (the client tables don't list trainers, so this is what's left without an item).
+  source: "item" | "trainer";
   // Item created and how many, when the recipe creates one (enchants don't).
   item?: number;
   count?: number;

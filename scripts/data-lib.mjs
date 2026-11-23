@@ -343,3 +343,29 @@ export const zoneNamesByCount = (zones, nameById) => {
     .map(([name]) => name);
   return { names, unnamed };
 };
+
+// ItemEffect.TriggerType 6: using the item teaches its spell (recipe items). Type 0 casts it (enchant scrolls).
+export const TRIGGER_LEARN = 6;
+// SpellEffect.Effect 36: the spell teaches EffectTriggerSpell (the older "Learning" spell some items use).
+export const SPELL_EFFECT_LEARN_SPELL = 36;
+
+// Spell ids that some item teaches. An item teaches a spell when one of its effects has trigger type 6 for it, or
+// casts a spell with a learn effect for it.
+// effects: Map of ItemEffect id to { spell, trigger }. links: [{ effect, item }] (ItemXItemEffect).
+// learns: Map of spell id to the spell ids its learn effects teach.
+export const spellsTaughtByItems = (effects, links, learns) => {
+  const taught = new Set();
+  for (const { effect } of links) {
+    const row = effects.get(effect);
+    if (!row) {
+      continue;
+    }
+    if (row.trigger === TRIGGER_LEARN) {
+      taught.add(row.spell);
+    }
+    for (const spell of learns.get(row.spell) ?? []) {
+      taught.add(spell);
+    }
+  }
+  return taught;
+};
