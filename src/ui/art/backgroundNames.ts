@@ -1,7 +1,10 @@
 // The background scenes by name, in cycling order. Kept apart from their drawing so the notes function can check a
 // saved choice without bundling Pixi.
 
-export const BACKGROUND_NAMES = ["moonlitForest", "duskCoast", "crystalCavern", "mistyPeaks"] as const;
+export const BACKGROUND_NAMES = [
+  "moonlitForest", "duskCoast", "crystalCavern", "mistyPeaks",
+  "jungleForest", "redVolcano", "duneProwl", "plainMulgore", "theVoodoo",
+] as const;
 
 export type BackgroundVariant = typeof BACKGROUND_NAMES[number];
 
