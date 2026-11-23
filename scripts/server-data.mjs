@@ -1,6 +1,7 @@
 // Facts that only a server knows, read from the CMaNGOS Classic world database (https://github.com/cmangos/classic-db,
 // GPLv3): where fish are caught, what fishing pools yield, and the skill a trainer asks for each recipe.
 // Pure helpers: the SQL dump comes in as text. Nothing from it is copied into this repo, only the facts derived here.
+import { appendTo, keysByValueDesc } from "./data-lib.mjs";
 
 // Column names of `CREATE TABLE \`table\`` in a mysqldump, in order.
 const columnsOf = (sql, table) => {
@@ -71,7 +72,7 @@ export const readSqlTable = (sql, table) => {
 const groupBy = (rows, key) => {
   const map = new Map();
   for (const row of rows) {
-    map.set(row[key], [...(map.get(row[key]) ?? []), row]);
+    appendTo(map, row[key], row);
   }
   return map;
 };
@@ -175,9 +176,7 @@ export const trainerSkillLevels = (trainerRows, learns, skillLines) => {
  * A fish's zone names, most likely first: zones it is fished in by best chance (ties by name), then zones where only
  * one of its pools spawns, by spawn count (ties by name). chances: Map<name, percent>, poolSpawns: Map<name, count>.
  */
-export const orderFishZones = (chances, poolSpawns) => {
-  const fished = [...chances].sort(([a, x], [b, y]) => y - x || a.localeCompare(b)).map(([name]) => name);
-  const pools = [...poolSpawns].filter(([name]) => !chances.has(name))
-    .sort(([a, x], [b, y]) => y - x || a.localeCompare(b)).map(([name]) => name);
-  return [...fished, ...pools];
-};
+export const orderFishZones = (chances, poolSpawns) => [
+  ...keysByValueDesc(chances),
+  ...keysByValueDesc([...poolSpawns].filter(([name]) => !chances.has(name))),
+];

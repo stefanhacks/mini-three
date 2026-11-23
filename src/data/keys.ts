@@ -10,3 +10,6 @@ export type ProfessionKey = typeof PROFESSION_KEYS[number];
  */
 export const TAB_GROUPS: readonly (readonly ProfessionKey[])[] = [["alchemy", "herbalism"], ["cooking", "fishing"],
   ["first-aid"]];
+
+/** Note and selection key of an item; recipes use `recipeKey` (`<profession>:<spell id>`). */
+export const itemKey = (itemId: number): string => `item:${itemId}`;

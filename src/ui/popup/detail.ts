@@ -1,13 +1,14 @@
-import {
-  Container, type FederatedPointerEvent, type FederatedWheelEvent, Graphics, Rectangle, type Text, type Ticker,
-} from "pixi.js";
+import { Container, Graphics, Rectangle, type Text, type Ticker } from "pixi.js";
 import type { Recipe } from "../../data";
+import { itemKey } from "../../data/keys";
 import {
   PROFESSION_ICONS, gathererOf, itemOf, locationsOf, professionByKey, recipeKey, recipesUsingItem,
 } from "../../data/model";
 import { type ArtKit, PALETTE, QUALITY_COLORS, TEXT_STYLES, createStoneOverlay } from "../art";
-import { at, button, checkbox, iconSprite, itemSlot, label, piece, qualityColor, tinted } from "../widgets";
-import { createDragScroll } from "./dragScroll";
+import {
+  at, button, checkbox, iconSprite, itemSlot, label, piece, qualityColor, tappable, tinted, wrapped,
+} from "../widgets";
+import { attachScrollInput, createDragScroll } from "./dragScroll";
 
 export type Selection = { kind: "recipe"; recipe: Recipe } | { kind: "item"; itemId: number } | null;
 
@@ -66,7 +67,6 @@ export const NOTE_EDIT_MIN_HEIGHT = 84;
 /** The tallest the textarea grows in a pane of this height; longer text scrolls inside it. */
 export const noteEditMaxHeight = (paneHeight: number): number =>
   Math.max(NOTE_EDIT_MIN_HEIGHT, Math.floor(paneHeight * 0.5));
-const WHEEL_LINE = 20;
 
 /** Shortens a single-line label with an ellipsis until it fits `maxWidth`. */
 const fitWidth = (text: Text, maxWidth: number): Text => {
@@ -80,7 +80,7 @@ const fitWidth = (text: Text, maxWidth: number): Text => {
 };
 
 export const selectionKey = (selection: Selection): string | null => !selection ? null
-  : selection.kind === "recipe" ? recipeKey(selection.recipe) : `item:${selection.itemId}`;
+  : selection.kind === "recipe" ? recipeKey(selection.recipe) : itemKey(selection.itemId);
 
 /**
  * The right-hand pane, top to bottom: heading (icon, name, subtitle, and Known for recipes), divider, the note as
@@ -119,37 +119,24 @@ export const createDetailPane = (
   };
 
   const drag = createDragScroll(view, ticker, { get: () => scroll, set: scrollTo }, content);
-  const area = new Container();
-  area.hitArea = new Rectangle(0, 0, width, height);
-  area.eventMode = "static";
-  view.addChildAt(area, 2);
-  area.on("pointerdown", (event: FederatedPointerEvent) => drag.press(event));
-  content.eventMode = "static";
-  content.on("pointerdown", (event: FederatedPointerEvent) => drag.press(event));
-  view.eventMode = "static";
-  view.on("wheel", (event: FederatedWheelEvent) => {
-    drag.stop();
-    scrollTo(scroll + (event.deltaMode === 1 ? event.deltaY * WHEEL_LINE : event.deltaY));
-  });
+  attachScrollInput(view, content, new Rectangle(0, 0, width, height), drag, (delta) => scrollTo(scroll + delta));
 
   /** Heading and divider; returns the y under the divider. `reserveRight` keeps the name clear of Known. */
   const heading = (icon: string | null, quality: number, title: string, titleColor: number, subtitle: string,
     reserveRight: number): number => {
     body.addChild(at(itemSlot(kit, icon, ICON_SIZE, quality), PAD, PAD));
     const textX = PAD + ICON_SIZE + 12;
-    const name = label(title, tinted(TEXT_STYLES.itemName, titleColor), textX, PAD + 2, 0, 0);
-    name.style.wordWrap = true;
-    name.style.wordWrapWidth = inner - ICON_SIZE - 12 - reserveRight;
+    const textWidth = inner - ICON_SIZE - 12;
+    const name = wrapped(label(title, tinted(TEXT_STYLES.itemName, titleColor), textX, PAD + 2, 0, 0),
+      textWidth - reserveRight);
     body.addChild(name);
     const subtitleY = Math.max(PAD + 38, name.y + name.height + 8);
     const sub = label(subtitle, TEXT_STYLES.label, textX, subtitleY);
     // A subtitle too wide for one line (a recipe's learn, yellow and grey on a phone) wraps, growing downwards.
     let subBottom = subtitleY + 16;
-    if (sub.width > inner - ICON_SIZE - 12) {
+    if (sub.width > textWidth) {
       const lineHeight = sub.height;
-      sub.style = sub.style.clone();
-      sub.style.wordWrap = true;
-      sub.style.wordWrapWidth = inner - ICON_SIZE - 12;
+      wrapped(sub, textWidth);
       sub.anchor.set(0, 0);
       sub.y = subtitleY - lineHeight / 2;
       subBottom = sub.y + sub.height + 8;
@@ -182,14 +169,9 @@ export const createDetailPane = (
       note = { x: PAD, y: textY, width: inner, height: editHeight };
       return textY + editHeight;
     }
-    const shown = text.trim() === ""
+    const shown = wrapped(text.trim() === ""
       ? label("No notes yet.", TEXT_STYLES.muted, PAD, textY, 0, 0)
-      : label(text, TEXT_STYLES.body, PAD, textY, 0, 0);
-    // User text: wrap at the pane width and break words longer than a line (URLs, coordinates).
-    shown.style = shown.style.clone();
-    shown.style.wordWrap = true;
-    shown.style.breakWords = true;
-    shown.style.wordWrapWidth = inner;
+      : label(text, TEXT_STYLES.body, PAD, textY, 0, 0), inner, true);
     body.addChild(shown);
     const blockHeight = Math.max(NOTE_MIN_HEIGHT, shown.height);
     note = { x: PAD, y: textY, width: inner, height: blockHeight };
@@ -204,23 +186,43 @@ export const createDetailPane = (
     if (!description) {
       return top;
     }
-    const text = label(description.map((use) => `Use: ${use}`).join("\n"),
-      tinted(TEXT_STYLES.body, QUALITY_COLORS.uncommon), PAD, top + 8, 0, 0);
-    text.style.wordWrap = true;
-    text.style.wordWrapWidth = inner;
+    const text = wrapped(label(description.map((use) => `Use: ${use}`).join("\n"),
+      tinted(TEXT_STYLES.body, QUALITY_COLORS.uncommon), PAD, top + 8, 0, 0), inner);
     body.addChild(text);
     return top + 14 + text.height;
   };
 
-  const clickable = (target: Container, itemId: number, hitWidth: number, hitHeight: number) => {
-    target.eventMode = "static";
-    target.cursor = "pointer";
-    target.hitArea = new Rectangle(0, 0, hitWidth, hitHeight);
-    target.on("pointertap", () => {
+  /** One reagent: its slot (count included) and name, which selects the item. */
+  const reagentCell = (itemId: number, count: number, x: number, y: number, columnWidth: number): Container => {
+    const item = itemOf(itemId);
+    const cell = at(new Container(), x, y);
+    cell.addChild(itemSlot(kit, item.icon, SLOT_SIZE, item.quality, count));
+    const name = label(item.name, tinted(TEXT_STYLES.body, qualityColor(item.quality)), SLOT_SIZE + 8,
+      SLOT_SIZE / 2, 0, 0.5);
+    name.style.wordWrapWidth = columnWidth - SLOT_SIZE - 14;
+    cell.addChild(name);
+    cell.hitArea = new Rectangle(0, 0, columnWidth - 6, SLOT_SIZE);
+    return tappable(cell, () => {
       if (!drag.dragged()) {
         handlers.onSelectItem(itemId);
       }
     });
+  };
+
+  /** "Learned from" and the reagents grid. Returns the y under the grid. */
+  const recipeSource = (recipe: Recipe, top: number): number => {
+    const sourceLabel = label("Learned from:", TEXT_STYLES.label, PAD, top);
+    body.addChild(sourceLabel, label(recipe.source === "item" ? "Recipe item" : "Trainer", TEXT_STYLES.body,
+      PAD + sourceLabel.width + 6, top));
+    const gridTop = top + 14 + SECTION_GAP;
+    body.addChild(label("Reagents:", TEXT_STYLES.label, PAD, gridTop));
+    const columns = Math.max(2, Math.floor(inner / REAGENT_COLUMN));
+    const column = Math.floor(inner / columns);
+    recipe.reagents.forEach(({ item, count }, i) => {
+      body.addChild(reagentCell(item, count, PAD + (i % columns) * column,
+        gridTop + 14 + Math.floor(i / columns) * REAGENT_ROW, column));
+    });
+    return gridTop + 14 + Math.ceil(recipe.reagents.length / columns) * REAGENT_ROW;
   };
 
   const showRecipe = (recipe: Recipe, known: boolean, text: string, editHeight: number | null): number => {
@@ -249,27 +251,7 @@ export const createDetailPane = (
       body.addChild(at(knownBox.view, PAD + inner - 72, PAD + 2));
     }
 
-    const sourceY = noteBlock(useBlock(underDivider, created?.use), text, editHeight) + SECTION_GAP;
-    const sourceLabel = label("Learned from:", TEXT_STYLES.label, PAD, sourceY);
-    body.addChild(sourceLabel, label(recipe.source === "item" ? "Recipe item" : "Trainer", TEXT_STYLES.body,
-      PAD + sourceLabel.width + 6, sourceY));
-    const top = sourceY + 14 + SECTION_GAP;
-    body.addChild(label("Reagents:", TEXT_STYLES.label, PAD, top));
-    const columns = Math.max(2, Math.floor(inner / REAGENT_COLUMN));
-    const column = Math.floor(inner / columns);
-    recipe.reagents.forEach(({ item: itemId, count }, i) => {
-      const item = itemOf(itemId);
-      const cell = at(new Container(), PAD + (i % columns) * column,
-        top + 14 + Math.floor(i / columns) * REAGENT_ROW);
-      cell.addChild(itemSlot(kit, item.icon, SLOT_SIZE, item.quality, count));
-      const name = label(item.name, tinted(TEXT_STYLES.body, qualityColor(item.quality)), SLOT_SIZE + 8,
-        SLOT_SIZE / 2, 0, 0.5);
-      name.style.wordWrapWidth = column - SLOT_SIZE - 14;
-      cell.addChild(name);
-      clickable(cell, itemId, column - 6, SLOT_SIZE);
-      body.addChild(cell);
-    });
-    return top + 14 + Math.ceil(recipe.reagents.length / columns) * REAGENT_ROW;
+    return recipeSource(recipe, noteBlock(useBlock(underDivider, created?.use), text, editHeight) + SECTION_GAP);
   };
 
   /**
@@ -282,9 +264,7 @@ export const createDetailPane = (
       return top;
     }
     body.addChild(label("Found in:", TEXT_STYLES.label, PAD, top));
-    const list = label(zones.join(", "), TEXT_STYLES.body, PAD + 4, top + 14, 0, 0);
-    list.style = list.style.clone();
-    list.style.wordWrapWidth = inner - 4;
+    const list = wrapped(label(zones.join(", "), TEXT_STYLES.body, PAD + 4, top + 14, 0, 0), inner - 4);
     body.addChild(list);
     return top + 14 + list.height + SECTION_GAP;
   };

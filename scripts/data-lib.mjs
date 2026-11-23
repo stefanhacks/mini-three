@@ -69,6 +69,24 @@ export const toInt = (value) => {
   return Number.isNaN(n) ? 0 : n;
 };
 
+// Appends `value` to the list under `key`, creating it on first use.
+export const appendTo = (map, key, value) => {
+  const list = map.get(key);
+  if (list) {
+    list.push(value);
+  } else {
+    map.set(key, [value]);
+  }
+};
+
+// Adds `amount` to the number under `key` (0 when absent).
+export const addTo = (map, key, amount) => map.set(key, (map.get(key) ?? 0) + amount);
+
+// The keys of [key, value] pairs, highest value first, ties by key (names: localeCompare).
+export const keysByValueDesc = (entries) => [...entries]
+  .sort(([nameA, valueA], [nameB, valueB]) => valueB - valueA || nameA.localeCompare(nameB))
+  .map(([name]) => name);
+
 // Item.ClassID 7 (Trade Goods) subclass 9 is herbs, the only gatherable kind the item tables can tell apart.
 export const TRADE_GOODS_CLASS = 7;
 export const GATHER_SUBCLASS = { 9: "herbalism" };
@@ -94,12 +112,7 @@ export const classifyGatherables = (items, recipes, allowLists = {}) => {
       allowed.set(id, profession);
     }
   }
-  const created = new Set();
-  for (const recipe of recipes) {
-    if (recipe.item) {
-      created.add(recipe.item);
-    }
-  }
+  const created = new Set(recipes.filter((recipe) => recipe.item).map((recipe) => recipe.item));
   const found = {};
   const add = (profession, id) => {
     (found[profession] ??= new Set()).add(id);
@@ -307,7 +320,7 @@ export const locateItems = (objects, rules) => {
       const zones = located.get(item) ?? new Map();
       for (const [, object] of matches) {
         for (const [zone, count] of object.zones) {
-          zones.set(zone, (zones.get(zone) ?? 0) + count);
+          addTo(zones, zone, count);
         }
       }
       if (zones.size > 0) {
@@ -326,15 +339,12 @@ export const zoneNamesByCount = (zones, nameById) => {
   for (const [zone, count] of zones) {
     const name = nameById.get(zone);
     if (name) {
-      byName.set(name, (byName.get(name) ?? 0) + count);
+      addTo(byName, name, count);
     } else {
       unnamed.push(zone);
     }
   }
-  const names = [...byName.entries()]
-    .sort(([nameA, countA], [nameB, countB]) => countB - countA || nameA.localeCompare(nameB))
-    .map(([name]) => name);
-  return { names, unnamed };
+  return { names: keysByValueDesc(byName), unnamed };
 };
 
 // ItemEffect.TriggerType 6: using the item teaches its spell (recipe items). Type 0 casts it (enchant scrolls).

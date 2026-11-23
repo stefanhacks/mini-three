@@ -19,7 +19,7 @@ export interface PieceSpec {
 
 const even = (inset: number): Slice => ({ left: inset, top: inset, right: inset, bottom: inset });
 
-const { ink, stone, warm, bronze, gold, red, highlight, skill } = PALETTE;
+const { ink, stone, warm, grey, bronze, gold, red, highlight, skill } = PALETTE;
 
 /** Height of the frame's title strip, measured from the frame's top edge to the bottom of its trim. */
 export const FRAME_TITLE_HEIGHT = 32;
@@ -27,6 +27,7 @@ export const FRAME_TITLE_HEIGHT = 32;
 export const SHADOW_SPREAD = 18;
 /** Transparent margin around side tabs, where the active tab draws its glow. */
 export const TAB_GLOW = 4;
+const TAB_ART_SIZE = 48;
 
 /** A bevelled gold plate with a rivet, over each corner of the frame trim. */
 const cornerPlate = (ctx: DrawContext, x: number, y: number): void => {
@@ -175,8 +176,8 @@ const slotBorder: PieceSpec = {
 
 /** A side tab. Inactive primary-profession tabs get a bronze rim instead of the grey one; active tabs are gold. */
 const sideTab = (active: boolean, primary = false): PieceSpec => ({
-  width: 48 + TAB_GLOW * 2,
-  height: 48 + TAB_GLOW * 2,
+  width: TAB_ART_SIZE + TAB_GLOW * 2,
+  height: TAB_ART_SIZE + TAB_GLOW * 2,
   slice: even(TAB_GLOW + 12),
   draw: (ctx, w, h) => {
     const { g } = ctx;
@@ -192,7 +193,7 @@ const sideTab = (active: boolean, primary = false): PieceSpec => ({
     g.roundRect(x + 1, x + 1, s - 2, s - 2, 6).fill(active
       ? ctx.linear([[0, gold.light], [0.5, gold.base], [1, gold.dark]])
       : primary ? ctx.linear([[0, bronze.light], [1, bronze.dark]])
-        : ctx.linear([[0, 0x5e5850], [1, 0x2e2a26]]));
+        : ctx.linear([[0, grey.light], [1, grey.dark]]));
     g.roundRect(x + 3, x + 3, s - 6, s - 6, 4).fill(ink);
     g.roundRect(x + 4, x + 4, s - 8, s - 8, 3).fill(active
       ? ctx.linear([[0, warm.raised], [1, warm.deep]])
@@ -362,7 +363,7 @@ export const PIECES = {
   button: button(red.light, red.dark, [gold.light, gold.dark], 0.18),
   buttonHover: button(0xd0402a, red.base, [gold.bright, gold.base], 0.28),
   buttonDown: button(red.dark, red.base, [gold.dark, gold.light], 0.05),
-  buttonDisabled: button(0x3a3632, 0x1c1a18, [0x5e5850, 0x2e2a26], 0.08),
+  buttonDisabled: button(0x3a3632, 0x1c1a18, [grey.light, grey.dark], 0.08),
   closeButton: closeButton(red.light, red.dark, gold.bright),
   closeButtonHover: closeButton(0xd0402a, red.base, 0xffffff),
   closeButtonDown: closeButton(red.dark, red.base, gold.light),

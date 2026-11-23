@@ -26,12 +26,52 @@ export const tinted = (style: TextStyle, fill: number): TextStyle => {
   return copy;
 };
 
+/**
+ * Wraps `text` at `width` on its own copy of the style. `breakWords` also breaks words longer than a line (user text:
+ * URLs, coordinates).
+ */
+export const wrapped = (text: Text, width: number, breakWords = false): Text => {
+  text.style = text.style.clone();
+  text.style.wordWrap = true;
+  text.style.wordWrapWidth = width;
+  text.style.breakWords = breakWords;
+  return text;
+};
+
+/** Makes `view` take pointer input with a hand cursor, calling `onTap` (if any) on a tap. */
+export const tappable = <T extends Container>(view: T, onTap?: () => void): T => {
+  view.eventMode = "static";
+  view.cursor = "pointer";
+  if (onTap) {
+    view.on("pointertap", onTap);
+  }
+  return view;
+};
+
+/** Removes and destroys every child of `container`. */
+export const clearChildren = (container: Container) => {
+  container.removeChildren().forEach((child) => child.destroy({ children: true }));
+};
+
 export const piece = (kit: ArtKit, name: PieceName, width?: number, height?: number): Container => {
   const p = kit.pieces[name];
   return p.slice && width !== undefined && height !== undefined
     ? createNineSlice(p, width, height)
     : new Sprite(p.texture);
 };
+
+/** Adds the remote game icon to `parent` once it loads, `size` square, unless `parent` was destroyed meanwhile. */
+const addIcon = (parent: Container, icon: string | null, size: number, x = 0, y = 0): Promise<Sprite | null> =>
+  loadIcon(icon).then((texture) => {
+    if (!texture || parent.destroyed) {
+      return null;
+    }
+    const sprite = new Sprite(texture);
+    sprite.width = size;
+    sprite.height = size;
+    parent.addChild(at(sprite, x, y));
+    return sprite;
+  });
 
 export const iconSprite = (texture: Texture, x: number, y: number, tint: number, scale = 1): Sprite => {
   const sprite = new Sprite({ texture, anchor: 0.5, tint });
@@ -47,6 +87,7 @@ export const itemSlot = (kit: ArtKit, icon: string | null, size: number, quality
   const slot = new Container();
   slot.addChild(createNineSlice(kit.pieces.slotBackground, size, size));
   const inset = 3;
+  // The icon loads into its own layer, under the border.
   const art = new Container();
   slot.addChild(art);
   const border = createNineSlice(kit.pieces.slotBorder, size, size);
@@ -55,15 +96,7 @@ export const itemSlot = (kit: ArtKit, icon: string | null, size: number, quality
   if (count > 1) {
     slot.addChild(label(String(count), TEXT_STYLES.row, size - 4, size - 3, 1, 1));
   }
-  void loadIcon(icon).then((texture) => {
-    if (!texture || slot.destroyed) {
-      return;
-    }
-    const sprite = new Sprite(texture);
-    sprite.width = size - inset * 2;
-    sprite.height = size - inset * 2;
-    art.addChild(at(sprite, inset, inset));
-  });
+  void addIcon(art, icon, size - inset * 2, inset, inset);
   return slot;
 };
 
@@ -72,15 +105,10 @@ export const roundIcon = (icon: string | null, diameter: number): Container => {
   const holder = new Container();
   const mask = new Graphics().circle(diameter / 2, diameter / 2, diameter / 2).fill(0xffffff);
   holder.addChild(mask);
-  void loadIcon(icon).then((texture) => {
-    if (!texture || holder.destroyed) {
-      return;
+  void addIcon(holder, icon, diameter).then((sprite) => {
+    if (sprite) {
+      sprite.mask = mask;
     }
-    const sprite = new Sprite(texture);
-    sprite.width = diameter;
-    sprite.height = diameter;
-    sprite.mask = mask;
-    holder.addChild(sprite);
   });
   return holder;
 };
@@ -116,17 +144,17 @@ export const button = (kit: ArtKit, text: string, width: number, onPress: () => 
     caption.style = state === "disabled" ? tinted(TEXT_STYLES.button, PALETTE.text.disabled) : TEXT_STYLES.button;
   };
   show("normal");
-  view.eventMode = "static";
-  view.cursor = "pointer";
-  view.on("pointerover", () => enabled && !latched && show("hover"));
-  view.on("pointerout", () => enabled && !latched && show("normal"));
-  view.on("pointerdown", () => enabled && !latched && show("down"));
-  view.on("pointerup", () => enabled && !latched && current === "down" && show("hover"));
-  view.on("pointertap", () => {
+  tappable(view, () => {
     if (enabled) {
       onPress();
     }
   });
+  // Hover and press feedback, paused while disabled or latched.
+  const feedback = () => enabled && !latched;
+  view.on("pointerover", () => feedback() && show("hover"));
+  view.on("pointerout", () => feedback() && show("normal"));
+  view.on("pointerdown", () => feedback() && show("down"));
+  view.on("pointerup", () => feedback() && current === "down" && show("hover"));
   return {
     view,
     setEnabled: (value) => {
@@ -162,17 +190,15 @@ export const checkbox = (
     check.visible = value;
   };
   set(initial);
-  view.eventMode = "static";
-  view.cursor = "pointer";
+  tappable(view, () => {
+    set(!checked);
+    onToggle(checked);
+  });
   view.on("pointerover", () => {
     boxHover.visible = true;
   });
   view.on("pointerout", () => {
     boxHover.visible = false;
-  });
-  view.on("pointertap", () => {
-    set(!checked);
-    onToggle(checked);
   });
   return { view, set };
 };

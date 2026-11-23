@@ -1,49 +1,13 @@
-import { BODY_FONT, PALETTE } from "../art";
 import { MAX_NOTE_LENGTH } from "../../app/storage";
+import { type OverlayField, createOverlayField } from "../dom";
 
-export interface NotesField {
-  /** Shows the field for the note of `key` (a `recipeKey` or `item:<id>`). The text only replaces a different one. */
+export interface NotesField extends Omit<OverlayField, "open" | "placedSize"> {
+  /** Shows the field for the note of `key` (a `recipeKey` or `itemKey`). The text only replaces a different one. */
   open: (key: string, text: string) => void;
-  /** Hides the field, and blurs it. */
-  close: () => void;
-  /** Focuses the open field with the caret at the end, without letting the browser scroll the page. */
-  focus: () => void;
   /** The height the whole text needs at `width` (unscaled px), or 0 while the field is hidden. */
   measure: (width: number) => number;
-  /**
-   * Puts the field at a screen rectangle in CSS pixels. `width` and `height` are the unscaled size, `scale` is the
-   * popup's world scale: the element is laid out at full size and scaled from its top-left corner, so text, caret
-   * and IME follow the canvas art. Cheap to call every frame.
-   */
-  place: (x: number, y: number, width: number, height: number, scale: number, clip?: Clip) => void;
-  /** Hides an open field without closing it, while its pane moves. Hiding blurs it. */
-  setVisible: (visible: boolean) => void;
-  /** Font size in CSS px. Phones get 16: iOS zooms the page into any smaller field on focus. */
-  setTextSize: (size: number) => void;
   element: HTMLTextAreaElement;
 }
-
-/** How much of the field to cut off at its top and bottom, in unscaled px (it scrolled past the pane's edge). */
-export interface Clip {
-  top: number;
-  bottom: number;
-}
-
-export const NOTES_TEXT_SIZE = 13;
-/** iOS Safari zooms into a focused field whose text is under 16 px. */
-export const NOTES_TEXT_SIZE_MOBILE = 16;
-
-/** How long after focus() the emulated mouse events of the same tap are still expected. */
-const FOCUS_GUARD_MS = 700;
-
-export const font = (size: number): string => `${size}px/${size + 4}px ${BODY_FONT.map(quote).join(", ")}`;
-
-export const hex = (colour: number): string => `#${colour.toString(16).padStart(6, "0")}`;
-// Pixi's TextStyle quotes the shared BODY_FONT entries in place once text exists, so strip quotes before adding them.
-const quote = (family: string): string => {
-  const bare = family.replace(/["']/g, "");
-  return bare.includes(" ") ? `"${bare}"` : bare;
-};
 
 export interface NotesFieldHandlers {
   /** Every change of the text, with the key it was opened for. */
@@ -61,44 +25,15 @@ export interface NotesFieldHandlers {
 export const createNotesField = ({ onInput, onSave, onCancel }: NotesFieldHandlers): NotesField => {
   const area = document.createElement("textarea");
   area.maxLength = MAX_NOTE_LENGTH;
-  area.spellcheck = false;
   area.setAttribute("aria-label", "Notes");
-  Object.assign(area.style, {
-    position: "fixed",
-    left: "0",
-    top: "0",
-    display: "none",
-    boxSizing: "border-box",
-    margin: "0",
+  const { open, close, placedSize, ...field } = createOverlayField(area, {
     padding: "3px 6px",
     border: "0",
-    outline: "none",
     resize: "none",
     overflow: "auto",
-    background: "rgba(0, 0, 0, 0.35)",
-    color: hex(PALETTE.text.body),
-    caretColor: hex(PALETTE.text.header),
-    font: font(NOTES_TEXT_SIZE),
-    transformOrigin: "0 0",
-  });
-
-  // The canvas handles its own pointer and wheel input; none of it should reach the popup from here.
-  ["pointerdown", "pointerup", "wheel", "click"].forEach((type) => {
-    area.addEventListener(type, (event) => event.stopPropagation());
   });
 
   let key: string | null = null;
-  let visible = true;
-  let placed = "";
-  // Last applied size, so a measurement can put it back.
-  let size = { width: "0px", height: "0px" };
-  const show = () => {
-    const shown = key !== null && visible;
-    area.style.display = shown ? "block" : "none";
-    if (!shown) {
-      area.blur();
-    }
-  };
   area.addEventListener("keydown", (event) => {
     if (event.isComposing) {
       return;
@@ -111,39 +46,21 @@ export const createNotesField = ({ onInput, onSave, onCancel }: NotesFieldHandle
       onSave();
     }
   });
-  // A tap on the canvas is followed by emulated mouse events, and the mousedown would blur the field that the tap just
-  // focused (closing the phone's keyboard). Swallow the mousedown that arrives right after focus().
-  let guardUntil = 0;
-  document.addEventListener("mousedown", (event) => {
-    // Only canvas presses: a press on another DOM field (the search input) must still focus it.
-    if (performance.now() < guardUntil && !(event.target instanceof HTMLInputElement)
-      && !(event.target instanceof HTMLTextAreaElement)) {
-      event.preventDefault();
-    }
-  }, true);
   area.addEventListener("input", () => {
     if (key !== null) {
       onInput(key, area.value);
     }
   });
-  document.body.appendChild(area);
 
   return {
+    ...field,
     open: (nextKey, text) => {
       key = nextKey;
-      if (area.value !== text) {
-        area.value = text;
-      }
-      show();
+      open(text);
     },
     close: () => {
       key = null;
-      show();
-    },
-    focus: () => {
-      guardUntil = performance.now() + FOCUS_GUARD_MS;
-      area.focus({ preventScroll: true });
-      area.setSelectionRange(area.value.length, area.value.length);
+      close();
     },
     measure: (width) => {
       if (area.style.display === "none") {
@@ -152,31 +69,8 @@ export const createNotesField = ({ onInput, onSave, onCancel }: NotesFieldHandle
       // Collapse the field so its scroll height is the text's own, then put the size back.
       Object.assign(area.style, { width: `${width}px`, height: "0px" });
       const needed = area.scrollHeight;
-      Object.assign(area.style, size);
+      Object.assign(area.style, placedSize());
       return needed;
-    },
-    place: (x, y, width, height, scale, clip = { top: 0, bottom: 0 }) => {
-      const next = `${x}|${y}|${width}|${height}|${scale}|${clip.top}|${clip.bottom}`;
-      if (next === placed) {
-        return;
-      }
-      placed = next;
-      Object.assign(area.style, {
-        transform: `translate(${x}px, ${y}px) scale(${scale})`,
-        width: `${width}px`,
-        height: `${height}px`,
-        clipPath: clip.top > 0 || clip.bottom > 0 ? `inset(${clip.top}px 0 ${clip.bottom}px 0)` : "",
-      });
-      size = { width: `${width}px`, height: `${height}px` };
-    },
-    setVisible: (value) => {
-      if (value !== visible) {
-        visible = value;
-        show();
-      }
-    },
-    setTextSize: (size) => {
-      area.style.font = font(size);
     },
     element: area,
   };

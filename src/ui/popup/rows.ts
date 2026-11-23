@@ -1,4 +1,6 @@
+import { groupBy } from "../../collections";
 import type { Item, Profession, Recipe } from "../../data";
+import { itemKey } from "../../data/keys";
 
 export type ListRow =
   | { kind: "header"; id: string; label: string; count: number; collapsed: boolean }
@@ -71,15 +73,10 @@ export const buildRows = (
   const gathered = profession.gatherables
     .filter((itemId) => !searching || matches(sources.itemOf(itemId).name) || sources.zonesOf(itemId).some(matches))
     .sort((a, b) => sources.itemOf(a).name.localeCompare(sources.itemOf(b).name))
-    .map((itemId): ListRow => ({ kind: "item", key: `item:${itemId}`, itemId }));
+    .map((itemId): ListRow => ({ kind: "item", key: itemKey(itemId), itemId }));
   section(`${profession.key}:gathered`, "Gathered", gathered);
 
-  const byCategory = new Map<number, Recipe[]>();
-  sources.recipes.forEach((recipe) => {
-    const list = byCategory.get(recipe.category) ?? [];
-    list.push(recipe);
-    byCategory.set(recipe.category, list);
-  });
+  const byCategory = groupBy(sources.recipes, (recipe) => recipe.category);
   profession.categories.forEach((category) => {
     const list = (byCategory.get(category.id) ?? [])
       .filter((recipe) => !filter.knownOnly || filter.known.has(sources.recipeKey(recipe)))
