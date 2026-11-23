@@ -69,6 +69,36 @@ const TABLES = [
 const SPELL_EFFECT_CREATE_ITEM = 24;
 // The game doesn't support skill above this yet: recipes learnable only above it are left out.
 const MAX_LEARN_SKILL = 300;
+// Learnable levels no data source has (Forever-only trainer recipes, Classic quest and event recipes), read by hand
+// from each recipe's Wowhead page (wowhead.com/forever, the "Skill" column) and checked by the owner. Keyed by
+// `<profession>:<spell>`. The build fails when an entry names no recipe, or when a recipe item or trainer starts giving
+// that recipe a level: then the entry can go. Unknown on Wowhead too, left out: Cleansing Stew, Refined Scale of
+// Onyxia, Crystal Infused Bandage; not checked yet: Mana Well, Viridian Dye.
+const LEARN_BY_HAND = {
+  "herbalism:1229705": 20, // Incense Candle
+  "fishing:1229745": 20, // Fish Bowl
+  "first-aid:1230117": 20, // First Aid Kit
+  "first-aid:1244431": 1, // Minor Healing Potion
+  "first-aid:1244432": 85, // Lesser Healing Potion
+  "first-aid:1244433": 110, // Healing Potion
+  "alchemy:1244645": 85, // Lesser Discolored Healing Potion
+  "alchemy:1244646": 135, // Discolored Healing Potion
+  "alchemy:1244647": 175, // Greater Discolored Healing Potion
+  "alchemy:1244648": 230, // Superior Discolored Healing Potion
+  "cooking:1247741": 210, // Spinefin Halibut
+  "alchemy:1249630": 40, // Cerulean Dye
+  "alchemy:1249631": 120, // Magenta Dye
+  "alchemy:1249633": 49, // Sulfuric Acid
+  "first-aid:1259342": 90, // Simple Poultice
+  "first-aid:1259347": 120, // Woolen Tourniquet
+  "alchemy:1250775": 205, // Revealing Draught
+  "cooking:1270632": 80, // Critter Cookie
+  "alchemy:2329": 15, // Elixir of Minor Strength
+  "alchemy:2365": 100, // Draught of Tongues
+  "alchemy:11452": 225, // Restorative Potion
+  "alchemy:24266": 315, // Gurubashi Mojo Madness (above 300: dropped)
+  "cooking:24801": 325, // Smoked Desert Dumplings (above 300: dropped)
+};
 // SkillLineAbility.AcquireMethod 1: the recipe comes with the profession, so it is learnable at skill 1.
 const ACQUIRE_WITH_PROFESSION = 1;
 // ItemEffect.TriggerType 0: the item's "Use:" spell.
@@ -327,6 +357,7 @@ const main = async () => {
   );
   // Where each recipe's level came from, by `<profession>:<spell>`, for the report.
   const learnOrigin = new Map();
+  const usedByHand = new Set();
   const learnLevel = (ability, key) => {
     const spell = toInt(ability.Spell);
     // Item and trainer levels first. "Comes with the profession" (AcquireMethod 1) only says 1 when nothing else does.
@@ -334,6 +365,15 @@ const main = async () => {
       ...(taughtByItem.get(spell) ?? []).map((item) => ["item", requiredRankByItem.get(item) ?? 0]),
       ["trainer", trainerLevels.get(spell) ?? 0],
     ].filter(([, level]) => level > 0).sort(([, x], [, y]) => x - y);
+    const byHand = LEARN_BY_HAND[key];
+    if (byHand !== undefined) {
+      if (candidates.length > 0) {
+        throw new Error(`LEARN_BY_HAND ${key} is no longer needed: a ${candidates[0][0]} gives ${candidates[0][1]}. `
+          + "Remove the entry.");
+      }
+      usedByHand.add(key);
+      candidates.push(["hand", byHand]);
+    }
     if (candidates.length === 0 && toInt(ability.AcquireMethod) === ACQUIRE_WITH_PROFESSION) {
       candidates.push(["profession", 1]);
     }
@@ -396,6 +436,10 @@ const main = async () => {
     recipes.push(recipe);
   }
   recipes.sort((a, b) => a.id - b.id || a.profession.localeCompare(b.profession));
+  const unusedByHand = Object.keys(LEARN_BY_HAND).filter((key) => !usedByHand.has(key));
+  if (unusedByHand.length > 0) {
+    throw new Error(`LEARN_BY_HAND names no recipe: ${unusedByHand.join(", ")}. Fix or remove the entries.`);
+  }
 
   const referencedItems = (list) => new Set(list.flatMap((recipe) => [
     ...(recipe.item ? [recipe.item] : []), ...recipe.reagents.map((reagent) => reagent.item),
@@ -675,7 +719,7 @@ const main = async () => {
   const fromOrigin = (origin) => recipes
     .filter((recipe) => learnOrigin.get(`${recipe.profession}:${recipe.id}`) === origin).length;
   log(`\nlearnable level from a recipe item ${fromOrigin("item")}, a trainer ${fromOrigin("trainer")}, `
-    + `the profession ${fromOrigin("profession")}, unknown ${unknownLearn.length}:`);
+    + `the profession ${fromOrigin("profession")}, by hand ${fromOrigin("hand")}, unknown ${unknownLearn.length}:`);
   log(`  ${unknownLearn.map((recipe) => `${recipe.profession}:${recipe.name}`).join(", ") || "none"}`);
   log(`\nrecipes taught by an item ${fromItems}, by a trainer or with the profession ${recipes.length - fromItems}`);
   const undescribed = recipes.filter((recipe) => !items[recipe.item]?.use).map((recipe) => recipe.name);

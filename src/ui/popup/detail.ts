@@ -230,7 +230,7 @@ export const createDetailPane = (
     // When it can be learned, then the yellow and grey thresholds that say when it is worth crafting.
     const subtitle = [
       profession?.name ?? "",
-      recipe.learn !== undefined ? `learn ${recipe.learn}` : "",
+      `learn ${recipe.learn ?? "??"}`,
       recipe.trivialLow > 0 ? `yellow ${recipe.trivialLow}, grey ${recipe.trivialHigh}` : "",
       recipe.count && recipe.count > 1 ? `creates ${recipe.count}` : "",
     ].filter(Boolean).join("  ·  ");

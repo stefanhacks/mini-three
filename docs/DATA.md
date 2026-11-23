@@ -36,7 +36,7 @@ The two GPLv3 sources are read at build time and reduced to facts. No file, row 
 
 - Professions: Alchemy, Herbalism, Cooking, Fishing, First Aid, in that order (`PROFESSIONS`). Nothing else is read.
 - Recipes with no category (abilities the profession window doesn't list, like the old Basic Campfire), recipes in the `SEASON OF DISCOVERY` category, and recipes learnable above skill 300 (`MAX_LEARN_SKILL`), are dropped, with the items only they used.
-- `learn` is the lowest skill a recipe item or trainer asks, or 1 for recipes that come with the profession. Unknown stays unset.
+- `learn` is the lowest skill a recipe item or trainer asks, or 1 for recipes that come with the profession. Where no source has it (Forever-only trainer recipes, Classic quest and event recipes), `LEARN_BY_HAND` holds levels read from each recipe's Wowhead page ("Skill" column of the recipe item or spell, not the created item), checked by the owner. Wowhead blocks automated access, so these are entered by hand; add one per recipe as `"<profession>:<spell id>": <level>` with the name in a comment. Still unknown stays unset and shows as `??`.
 - Herbs are the uncrafted reagents of item class 7, subclass 9, plus `HERBALISM_ITEMS`. Fish are exactly `FISHING_ITEMS`: the item tables can't tell fish from meat.
 - Herb zones come from `LOCATION_RULES` (which node yields which herb). Fish zones come from the fishing loot, then from pool spawns.
 - Every item with a "Use:" effect (potions, food, edible fish, camping items) carries its spell text as `use`, with its `$` tokens resolved by `scripts/descriptions.mjs`. A recipe shows its created item's.
@@ -51,6 +51,8 @@ The two GPLv3 sources are read at build time and reduced to facts. No file, row 
 | `answered 404` | A pin points at something that doesn't exist (a build wago.tools doesn't have, a wrong tag or commit). |
 | `expected one top-level skill line named X` | A profession was renamed in the client. Fix its `name` in `PROFESSIONS`. |
 | `unresolved description tokens` | A spell text uses a `$` token the resolver doesn't know. Add it to `scripts/descriptions.mjs` with a test. Never ship the raw token. |
+| `LEARN_BY_HAND ... is no longer needed` | A recipe item or trainer now gives that recipe a level. Delete the entry. |
+| `LEARN_BY_HAND names no recipe` | A typo, or the recipe left the data. Fix or delete the entry. |
 | `description patch ... no longer applies` | The client fixed what `DESCRIPTION_PATCHES` worked around. Delete the patch. |
 | `allow-listed item N is not in the client's Item table` or `location rule item N ...` | A hand-written id is a typo or was removed. Fix the list. |
 | `Lua parse error`, `object table not found`, `table X not found in the SQL dump` | A source changed its format. Update the reader in `scripts/data-lib.mjs` or `scripts/server-data.mjs`. |
@@ -61,7 +63,7 @@ It then prints a report. These lines are **expected**, but read them for anythin
 - `herbalism without locations`, `fish without locations`: no source knows the place. A new entry here after an update may mean a rule needs a new node name.
 - `rule items that are no kept Herbalism gatherable` and `allow-listed items no kept recipe uses`: hand-written ids no kept recipe needs. Left out on purpose.
 - `rules matching no object with spawns`: should be `none`. A name here means a node was renamed in QuestieDB.
-- `learnable level ... unknown N`: recipes with no `learn`. They stay and show no level. A big jump means a trainer or item source broke.
+- `learnable level ... unknown N`: recipes with no `learn`. They stay and show `??`. Candidates for `LEARN_BY_HAND`. A big jump means a trainer or item source broke.
 - `items with a "Use:" text ...; recipes whose item has none`: transmutes, dyes, oils and a few more. Expected.
 - `reagents whose bag family disagrees`: should be empty.
 - `uncrafted reagents with pet food type fish`: a checklist for `FISHING_ITEMS`. Fish listed here that are not in `FISHING_ITEMS` are either not fished (meat, clams) or missing: check each against `fishing_loot_template` before adding it.
