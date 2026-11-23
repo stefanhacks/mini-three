@@ -69,12 +69,9 @@ export const toInt = (value) => {
   return Number.isNaN(n) ? 0 : n;
 };
 
-// Item.ClassID 7 (Trade Goods) subclasses, and the profession that collects each gatherable one.
+// Item.ClassID 7 (Trade Goods) subclass 9 is herbs, the only gatherable kind the item tables can tell apart.
 export const TRADE_GOODS_CLASS = 7;
-export const CLOTH_SUBCLASS = 5;
-export const GATHER_SUBCLASS = { 9: "herbalism", 7: "mining", 6: "skinning" };
-// Cloth is not collected by any profession: it gets its own pseudo-profession key.
-export const CLOTH_KEY = "cloth";
+export const GATHER_SUBCLASS = { 9: "herbalism" };
 
 // Returns the gathering profession key for an item, or null when its class and subclass don't mark one.
 export const gatherProfession = (item) => {
@@ -89,7 +86,7 @@ export const gatherProfession = (item) => {
 // allowLists: { <profession key>: [item id] }, hand-written ids assigned to a profession whatever their class,
 // even when a recipe also creates them.
 // recipes: [{ profession, item?, reagents: [{ item }] }].
-// Otherwise gatherables are reagents that no recipe creates. Cloth (class 7, subclass 5) goes under CLOTH_KEY.
+// Otherwise gatherables are reagents that no recipe creates and that the item class marks as gathered.
 export const classifyGatherables = (items, recipes, allowLists = {}) => {
   const allowed = new Map();
   for (const [profession, ids] of Object.entries(allowLists)) {
@@ -110,16 +107,12 @@ export const classifyGatherables = (items, recipes, allowLists = {}) => {
   for (const recipe of recipes) {
     for (const { item: id } of recipe.reagents) {
       const item = items.get(id);
-      // The hand-written lists win: some gathered items can also be crafted (Light Leather from scraps).
+      // The hand-written lists win: some gathered items can also be crafted.
       if (allowed.has(id)) {
         add(allowed.get(id), id);
         continue;
       }
       if (!item || created.has(id)) {
-        continue;
-      }
-      if (item.classId === TRADE_GOODS_CLASS && item.subclassId === CLOTH_SUBCLASS) {
-        add(CLOTH_KEY, id);
         continue;
       }
       const gatherer = gatherProfession(item);
@@ -349,22 +342,28 @@ export const TRIGGER_LEARN = 6;
 // SpellEffect.Effect 36: the spell teaches EffectTriggerSpell (the older "Learning" spell some items use).
 export const SPELL_EFFECT_LEARN_SPELL = 36;
 
-// Spell ids that some item teaches. An item teaches a spell when one of its effects has trigger type 6 for it, or
-// casts a spell with a learn effect for it.
+// The items that teach each spell: Map<spell id, item id[]>. An item teaches a spell when one of its effects has
+// trigger type 6 for it, or casts a spell with a learn effect for it.
 // effects: Map of ItemEffect id to { spell, trigger }. links: [{ effect, item }] (ItemXItemEffect).
 // learns: Map of spell id to the spell ids its learn effects teach.
 export const spellsTaughtByItems = (effects, links, learns) => {
-  const taught = new Set();
-  for (const { effect } of links) {
+  const taught = new Map();
+  const add = (spell, item) => {
+    const items = taught.get(spell) ?? [];
+    if (!items.includes(item)) {
+      taught.set(spell, [...items, item]);
+    }
+  };
+  for (const { effect, item } of links) {
     const row = effects.get(effect);
     if (!row) {
       continue;
     }
     if (row.trigger === TRIGGER_LEARN) {
-      taught.add(row.spell);
+      add(row.spell, item);
     }
     for (const spell of learns.get(row.spell) ?? []) {
-      taught.add(spell);
+      add(spell, item);
     }
   }
   return taught;

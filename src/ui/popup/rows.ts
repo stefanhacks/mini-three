@@ -1,4 +1,4 @@
-import { CLOTH_KEY, type Item, type Profession, type Recipe } from "../../data";
+import type { Item, Profession, Recipe } from "../../data";
 
 export type ListRow =
   | { kind: "header"; id: string; label: string; count: number; collapsed: boolean }
@@ -27,6 +27,8 @@ interface RowSources {
   recipes: Recipe[];
   itemOf: (id: number) => Item;
   recipeKey: (recipe: Recipe) => string;
+  /** Zones a gatherable is found in (herb nodes, fishing); search matches them too. */
+  zonesOf: (id: number) => string[];
 }
 
 interface RowFilter {
@@ -42,10 +44,11 @@ export const normalize = (text: string): string => text.normalize("NFD").replace
 
 /**
  * Flattens a profession into list rows: its gatherables first (one section), then its recipes by category in the
- * game's category order, each by the skill where it turns yellow. Empty sections are skipped; collapsed sections
- * keep their header only. With `knownOnly`, recipes that are not known are left out (and so are sections left empty).
- * With a `query`, only entries whose name contains it stay (a recipe also when one of its reagents does), and
- * collapsed sections open up so every match shows.
+ * game's category order, each by the skill it is learnable at (recipes with no known level by their yellow skill
+ * instead), then yellow skill, then name. Empty sections are skipped; collapsed sections keep their header only.
+ * With `knownOnly`, recipes that are not known are left out (and so are sections left empty). With a `query`, only
+ * entries whose name contains it stay (a recipe also when one of its reagents does, a gatherable also when one of its
+ * zones does: "Mulgore" finds Peacebloom), and collapsed sections open up so every match shows.
  */
 export const buildRows = (
   profession: Profession, collapsed: ReadonlySet<string>, sources: RowSources, filter: RowFilter,
@@ -66,10 +69,10 @@ export const buildRows = (
   };
 
   const gathered = profession.gatherables
-    .filter((itemId) => !searching || matches(sources.itemOf(itemId).name))
+    .filter((itemId) => !searching || matches(sources.itemOf(itemId).name) || sources.zonesOf(itemId).some(matches))
     .sort((a, b) => sources.itemOf(a).name.localeCompare(sources.itemOf(b).name))
     .map((itemId): ListRow => ({ kind: "item", key: `item:${itemId}`, itemId }));
-  section(`${profession.key}:gathered`, profession.key === CLOTH_KEY ? "Cloth" : "Gathered", gathered);
+  section(`${profession.key}:gathered`, "Gathered", gathered);
 
   const byCategory = new Map<number, Recipe[]>();
   sources.recipes.forEach((recipe) => {
@@ -82,7 +85,8 @@ export const buildRows = (
       .filter((recipe) => !filter.knownOnly || filter.known.has(sources.recipeKey(recipe)))
       .filter((recipe) => !searching || matches(recipe.name)
         || recipe.reagents.some(({ item }) => matches(sources.itemOf(item).name)))
-      .sort((a, b) => a.trivialLow - b.trivialLow || a.name.localeCompare(b.name));
+      .sort((a, b) => (a.learn ?? a.trivialLow) - (b.learn ?? b.trivialLow) || a.trivialLow - b.trivialLow
+        || a.name.localeCompare(b.name));
     section(`${profession.key}:cat:${category.id}`, category.name,
       list.map((recipe): ListRow => {
         const key = sources.recipeKey(recipe);

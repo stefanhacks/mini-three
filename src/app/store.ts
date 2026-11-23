@@ -2,13 +2,11 @@ import type { ProfessionKey } from "../data";
 import type { Selection } from "../ui/popup/detail";
 
 export interface AppState {
-  /** Professions the user picked, in picker order. Their tabs are the only tabs. */
-  chosen: ProfessionKey[];
-  active: ProfessionKey | null;
+  /** The open tab. */
+  active: ProfessionKey;
   selection: Selection;
   /** Collapsed list section ids. */
   collapsed: ReadonlySet<string>;
-  view: "picker" | "list";
   /** The mobile layout shows the detail pane over the list. Transient; desktop always shows both. */
   detailOpen: boolean;
   /** `recipeKey`s of the recipes marked as known. Saved. */
@@ -17,7 +15,7 @@ export interface AppState {
   knownOnly: boolean;
   /**
    * The search field: null while closed, else its text (blank shows everything). Filters the active tab's list.
-   * Transient: never saved, kept across tabs and layout rebuilds, closed by the profession picker.
+   * Transient: never saved, kept across tabs and layout rebuilds.
    */
   search: string | null;
   /** Notes by `recipeKey` (recipes) or `item:<id>` (items). Saved. */

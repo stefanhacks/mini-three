@@ -1,15 +1,21 @@
 // Builds src/data/*.json from the WoW: Forever client DB2 tables (wago.tools, product wowf).
 // Run with `npm run data`. Downloads are cached in .cache/; the output JSON is committed.
+import { Buffer } from "node:buffer";
 import { createWriteStream } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { gunzipSync } from "node:zlib";
+import { resolveDescription } from "./descriptions.mjs";
 import {
-  CLOTH_KEY, SPELL_EFFECT_LEARN_SPELL, classifyGatherables, locateItems, parseCsv, readQuestieObjects,
+  SPELL_EFFECT_LEARN_SPELL, classifyGatherables, locateItems, parseCsv, readQuestieObjects,
   spellsTaughtByItems, toInt, zoneNamesByCount,
 } from "./data-lib.mjs";
+import {
+  fishingAreas, orderFishZones, poolYields, readSqlTable, trainerSkillLevels,
+} from "./server-data.mjs";
 
 // Pinned inputs: change them on purpose, and the output changes with them.
 // Tables are fetched with useHotfixes=true. It is an undocumented wago.tools query parameter (found by trying it):
@@ -27,26 +33,29 @@ const QUESTIE_FILES = [
   "data/Forever/foreverObjectDB.lua",
   "src/corrections/Forever/generated/foreverBaseObject.lua",
 ];
+// Server-side facts come from the CMaNGOS Classic world database (https://github.com/cmangos/classic-db, GPLv3), at
+// this commit, read the same way as QuestieDB: the gzipped dump is cached in .cache/ and reduced at build time to
+// zone names per fish, the fish each pool yields and a skill level per recipe. Nothing else is kept. The repo's
+// Updates/*.sql are not applied: at this commit none of them changes fishing loot, pool loot or trainers (check again
+// when bumping the commit).
+const CLASSICDB_COMMIT = "13e933726f386399d9820138fbd1123e7cda86c8";
+const CLASSICDB_FILE = "Full_DB/ClassicDB_1_12_1_z2815.sql.gz";
+// The trainer rows name teaching spells that the Forever client mostly dropped. The Classic Era client still has
+// them: its learn-spell effects say which recipe each teaching spell teaches. Only SpellEffect is read from it.
+const ERA_BUILD = "1.15.9.70576";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const CACHE_DIR = path.join(ROOT, ".cache");
 const OUT_DIR = path.join(ROOT, "src", "data");
 
-// The 13 profession skill lines, in display order. Matched by name among top-level SkillLines.
+// The professions the app covers, in tab order. Nothing else is read from the client tables. `tier` sets the two
+// primary professions apart from the three secondary ones. Matched by name among top-level SkillLines.
 const PROFESSIONS = [
-  { key: "alchemy", name: "Alchemy" },
-  { key: "blacksmithing", name: "Blacksmithing" },
-  { key: "enchanting", name: "Enchanting" },
-  { key: "engineering", name: "Engineering" },
-  { key: "leatherworking", name: "Leatherworking" },
-  { key: "tailoring", name: "Tailoring" },
-  { key: "herbalism", name: "Herbalism" },
-  { key: "mining", name: "Mining" },
-  { key: "skinning", name: "Skinning" },
-  { key: "cooking", name: "Cooking" },
-  { key: "first-aid", name: "First Aid" },
-  { key: "fishing", name: "Fishing" },
-  { key: "poisons", name: "Poisons" },
+  { key: "alchemy", name: "Alchemy", tier: "primary" },
+  { key: "herbalism", name: "Herbalism", tier: "primary" },
+  { key: "cooking", name: "Cooking", tier: "secondary" },
+  { key: "fishing", name: "Fishing", tier: "secondary" },
+  { key: "first-aid", name: "First Aid", tier: "secondary" },
 ];
 // SkillLine.CategoryID: 11 is a main profession, 9 a secondary one (the others are weapons, languages, riding...).
 const PROFESSION_CATEGORIES = new Set([9, 11]);
@@ -54,9 +63,54 @@ const PROFESSION_CATEGORIES = new Set([9, 11]);
 const TABLES = [
   "SkillLine", "SkillLineAbility", "TradeSkillCategory", "SpellName", "SpellReagents", "SpellEffect",
   "Item", "ItemSparse", "ItemModifiedAppearance", "ItemAppearance", "ItemEffect", "ItemXItemEffect",
+  "Spell", "SpellMisc", "SpellDuration", "SpellRadius", "SpellAuraOptions",
 ];
 
 const SPELL_EFFECT_CREATE_ITEM = 24;
+// The game doesn't support skill above this yet: recipes learnable only above it are left out.
+const MAX_LEARN_SKILL = 300;
+// Learnable levels no data source has (Forever-only trainer recipes, Classic quest and event recipes), read by hand
+// from each recipe's Wowhead page (wowhead.com/forever, the "Skill" column) and checked by the owner. Keyed by
+// `<profession>:<spell>`. The build fails when an entry names no recipe, or when a recipe item or trainer starts giving
+// that recipe a level: then the entry can go. Unknown on Wowhead too, left out: Cleansing Stew, Refined Scale of
+// Onyxia, Crystal Infused Bandage.
+const LEARN_BY_HAND = {
+  "herbalism:1229705": 20, // Incense Candle
+  "fishing:1229745": 20, // Fish Bowl
+  "first-aid:1230117": 20, // First Aid Kit
+  "first-aid:1244431": 1, // Minor Healing Potion
+  "first-aid:1244432": 85, // Lesser Healing Potion
+  "first-aid:1244433": 110, // Healing Potion
+  "alchemy:1244645": 85, // Lesser Discolored Healing Potion
+  "alchemy:1244646": 135, // Discolored Healing Potion
+  "alchemy:1244647": 175, // Greater Discolored Healing Potion
+  "alchemy:1244648": 230, // Superior Discolored Healing Potion
+  "cooking:1247741": 210, // Spinefin Halibut
+  "alchemy:1249630": 40, // Cerulean Dye
+  "alchemy:1249631": 120, // Magenta Dye
+  "alchemy:1249632": 215, // Viridian Dye
+  "alchemy:1230564": 20, // Mana Well
+  "alchemy:1249633": 40, // Sulfuric Acid
+  "first-aid:1259342": 90, // Simple Poultice
+  "first-aid:1259347": 120, // Woolen Tourniquet
+  "alchemy:1250775": 205, // Revealing Draught
+  "cooking:1270632": 80, // Critter Cookie
+  "alchemy:2329": 15, // Elixir of Minor Strength
+  "alchemy:2365": 100, // Draught of Tongues
+  "alchemy:11452": 225, // Restorative Potion
+  "alchemy:24266": 315, // Gurubashi Mojo Madness (above 300: dropped)
+  "cooking:24801": 325, // Smoked Desert Dumplings (above 300: dropped)
+};
+// SkillLineAbility.AcquireMethod 1: the recipe comes with the profession, so it is learnable at skill 1.
+const ACQUIRE_WITH_PROFESSION = 1;
+// ItemEffect.TriggerType 0: the item's "Use:" spell.
+const TRIGGER_USE = 0;
+// Description tokens that point at data the client doesn't have, rewritten before resolving. Each `from` must still be
+// in that spell's description: the build fails when a new client build fixes the data, so the patch can go.
+const DESCRIPTION_PATCHES = [
+  // Goldthorn Tea: the buff 1249907 has a single effect (+15 Herbalism, index 0), not a second one.
+  { spell: 1249906, from: "$1249907s2", to: "$1249907s1" },
+];
 const MAX_REAGENTS = 8;
 const FISH_PET_FOOD = 2;
 
@@ -88,6 +142,12 @@ const FISHING_ITEMS = [
   13889, // Raw Whitescale Salmon
   21071, // Raw Sagefish
   21153, // Raw Greater Sagefish
+  // Used by Cooking but missing from the first list. All four turn up in the CMaNGOS fishing loot or pools; the
+  // report's "pet food type fish" checklist is how to spot fish that are still missing.
+  6522, // Deviate Fish
+  13755, // Raw Winter Squid
+  13890, // Raw Plated Armorfish
+  13893, // Large Raw Mightfish
 ];
 // Herb-bag items that Herbalism gathers but are not class 7 subclass 9 (seeds are class 15, Morrowgrain class 12).
 const HERBALISM_ITEMS = [
@@ -96,33 +156,7 @@ const HERBALISM_ITEMS = [
   17034, // Maple Seed
   17035, // Stranglethorn Seed
 ];
-// Leathers that skinning yields directly, although Leatherworking can also make them from scraps or lesser leather.
-const SKINNING_ITEMS = [
-  2318, // Light Leather
-  2319, // Medium Leather
-  4234, // Heavy Leather
-  4304, // Thick Leather
-  8170, // Rugged Leather
-];
-// Gems that drop from mining veins in Classic. They are class 7 subclass 11 ("other"), so Mining can't be inferred.
-const MINING_GEMS = [
-  774, // Malachite
-  818, // Tigerseye
-  1206, // Moss Agate
-  1210, // Shadowgem
-  1529, // Jade
-  1705, // Lesser Moonstone
-  3864, // Citrine
-  7909, // Aquamarine
-  7910, // Star Ruby
-  12361, // Blue Sapphire
-  12363, // Arcane Crystal
-  12364, // Huge Emerald
-  12799, // Large Opal
-  12800, // Azerothian Diamond
-];
-// ItemSparse.BagFamily bits that name the profession bag an item belongs in.
-// Which item each Herbalism and Mining node yields, hand-checked. A rule matches objects by exact name (`node`: the
+// Which item each Herbalism node yields, hand-checked. A rule matches objects by exact name (`node`: the
 // same node has several object ids, one per spawn group or zone) or by object id (`ids`, when only some objects of a
 // name yield it). Yields follow QuestieDB's item `objectDrops` (the loot tables), limited to these node objects:
 // chests and crates that also hold the same items are not nodes.
@@ -163,54 +197,25 @@ const LOCATION_RULES = [
   { ids: [142140], items: [8153] }, // Wildvine: Purple Lotus node (Questie id 142140)
   // Bloodvine: the Zul'Gurub Sungrass, Purple Lotus, Silversage, Sansam and Dreamfoil nodes
   { ids: [180164, 180165, 180166, 180167, 180168], items: [19726] },
-  // Ore veins: ore, its stone and the gems (Questie lists Shadowgem for Copper, Tin and Silver, and so on).
-  // Copper Ore, Rough Stone, Malachite, Tigerseye, Shadowgem
-  { node: "Copper Vein", items: [2770, 2835, 774, 818, 1210] },
-  // Forever-only low yield vein: Copper Ore by its name, no stone or gem data
-  { node: "Poor Copper Vein", items: [2770] },
-  // Tin Ore, Coarse Stone, Moss Agate, Shadowgem, Jade, Lesser Moonstone
-  { node: "Tin Vein", items: [2771, 2836, 1206, 1210, 1529, 1705] },
-  { node: "Silver Vein", items: [2775, 1206, 1210, 1705] }, // Silver Ore, Moss Agate, Shadowgem, Lesser Moonstone
-  { node: "Ooze Covered Silver Vein", items: [2775, 1206, 1210, 1705] }, // same as Silver Vein
-  { node: "Gold Vein", items: [2776, 1529, 1705, 3864] }, // Gold Ore, Jade, Lesser Moonstone, Citrine
-  { node: "Ooze Covered Gold Vein", items: [2776, 1529, 1705, 3864] }, // same as Gold Vein
-  // Iron Ore, Heavy Stone, Jade, Lesser Moonstone, Citrine, Aquamarine
-  { node: "Iron Deposit", items: [2772, 2838, 1529, 1705, 3864, 7909] },
-  // Mithril Ore, Solid Stone, Citrine, Aquamarine, Star Ruby
-  { node: "Mithril Deposit", items: [3858, 7912, 3864, 7909, 7910] },
-  { node: "Ooze Covered Mithril Deposit", items: [3858, 7912, 3864, 7909, 7910] }, // same as Mithril Deposit
-  { node: "Truesilver Deposit", items: [7911, 3864, 7909, 7910] }, // Truesilver Ore, Citrine, Aquamarine, Star Ruby
-  { node: "Ooze Covered Truesilver Deposit", items: [7911, 3864, 7909, 7910] }, // same as Truesilver Deposit
-  // Thorium veins all yield Thorium Ore, Dense Stone and the high gems.
-  // Thorium Ore, Dense Stone, Star Ruby, Blue Sapphire, Arcane Crystal, Huge Emerald, Large Opal, Azerothian Diamond
-  { node: "Small Thorium Vein", items: [10620, 12365, 7910, 12361, 12363, 12364, 12799, 12800] },
-  // same as Small Thorium Vein
-  { node: "Rich Thorium Vein", items: [10620, 12365, 7910, 12361, 12363, 12364, 12799, 12800] },
-  { node: "Ooze Covered Thorium Vein", items: [10620, 12365, 7910, 12361, 12363, 12364, 12799, 12800] }, // same
-  { node: "Ooze Covered Rich Thorium Vein", items: [10620, 12365, 7910, 12361, 12363, 12364, 12799, 12800] }, // same
-  { node: "Hakkari Thorium Vein", items: [10620, 12365, 7910, 12361, 12363, 12364, 12799, 12800] }, // same (Zul'Gurub)
-  { node: "Dark Iron Deposit", items: [11370] }, // Dark Iron Ore
-  { node: "Heavy Thorium Vein", items: [248815] }, // Heavy Thorium Ore (Forever-only, same name)
-  // Pyrite (Forever-only: fool's gold is pyrite; by name only, flagged for review)
-  { node: "Fool's Gold Vein", items: [249391] },
-  // Not mapped on purpose: Coal, Guardian Stone, Sulfuron Ingot, Elementium Ore, Elemental Flux (no node drops them),
-  // Bauxite, Pitchblende (no node known), Obsidian Shards (their chunks have no spawns), Cold Iron Deposit,
-  // Spectral Iron Deposit and Starsilver Vein (Forever-only, yield unknown), Deathweed, Morrowgrain, the seeds,
-  // Death Lotus, Frilled Lichen, Rosecap, Stranglevine (no node known).
+  // Not mapped on purpose: Deathweed, Morrowgrain, the seeds, Death Lotus, Frilled Lichen, Rosecap and Stranglevine (no
+  // node known).
 ];
-// Locations are kept only for these professions: the UI shows a "Found in" line for herbs and ores.
-const LOCATION_PROFESSIONS = ["herbalism", "mining"];
+// Locations are kept only for these professions: the UI shows a "Found in" line for herbs.
+const LOCATION_PROFESSIONS = ["herbalism"];
 
+// ItemSparse.BagFamily bits that name the profession bag an item belongs in.
 const BAG_FAMILY_CHECKS = [
-  { bit: 8, label: "leatherworking bag", profession: "skinning" },
   { bit: 32, label: "herb bag", profession: "herbalism" },
-  { bit: 1024, label: "mining bag", profession: "mining" },
 ];
 
 const log = (...args) => console.log(...args);
 
 const fetchOk = async (url) => {
-  const response = await fetch(url);
+  const response = await fetch(url).catch((error) => {
+    // Node's fetch ignores HTTPS_PROXY unless asked (Node 22.21 or newer): the usual cause in a sandbox.
+    throw new Error(`${url} could not be reached (${error.cause?.code ?? error.message}). Behind a proxy, run with `
+      + "NODE_USE_ENV_PROXY=1, see docs/DATA.md");
+  });
   if (!response.ok) {
     throw new Error(`${url} answered ${response.status}`);
   }
@@ -219,11 +224,11 @@ const fetchOk = async (url) => {
 
 const exists = (file) => readFile(file).then(() => true, () => false);
 
-const downloadTable = async (table) => {
-  const file = path.join(CACHE_DIR, `wowf-${BUILD}-hotfixes`, `${table}.csv`);
+const downloadTable = async (table, build = BUILD) => {
+  const file = path.join(CACHE_DIR, `${build === BUILD ? "wowf" : "era"}-${build}-hotfixes`, `${table}.csv`);
   if (!(await exists(file))) {
-    log(`downloading ${table}`);
-    const response = await fetchOk(`https://wago.tools/db2/${table}/csv?build=${BUILD}&useHotfixes=true`);
+    log(`downloading ${table} (${build})`);
+    const response = await fetchOk(`https://wago.tools/db2/${table}/csv?build=${build}&useHotfixes=true`);
     await mkdir(path.dirname(file), { recursive: true });
     // Write then rename, so an interrupted download never leaves a truncated CSV that later runs trust.
     await writeFile(`${file}.partial`, await response.text());
@@ -242,6 +247,20 @@ const downloadQuestieFile = async (file) => {
     await rename(`${target}.partial`, target);
   }
   return readFile(target, "utf8");
+};
+
+// The CMaNGOS Classic world database dump, as SQL text. The 13 MB gzip is cached; unzipping takes about a second.
+const loadClassicDb = async () => {
+  const file = path.join(CACHE_DIR, `classicdb-${CLASSICDB_COMMIT}.sql.gz`);
+  if (!(await exists(file))) {
+    log("downloading the CMaNGOS Classic world database (13 MB, one time)");
+    const url = `https://raw.githubusercontent.com/cmangos/classic-db/${CLASSICDB_COMMIT}/${CLASSICDB_FILE}`;
+    const response = await fetchOk(url);
+    await mkdir(CACHE_DIR, { recursive: true });
+    await writeFile(`${file}.partial`, Buffer.from(await response.arrayBuffer()));
+    await rename(`${file}.partial`, file);
+  }
+  return gunzipSync(await readFile(file)).toString("utf8");
 };
 
 // Reads the community listfile and keeps only interface/icons/<name>.blp rows (id;path), cached trimmed.
@@ -279,19 +298,22 @@ const loadIconNames = async () => {
 const byId = (rows) => new Map(rows.map((row) => [row.ID, row]));
 
 const main = async () => {
-  const tables = await Promise.all(TABLES.map(downloadTable));
+  const tables = await Promise.all(TABLES.map((table) => downloadTable(table)));
   const [skillLines, abilities, tradeCategories, spellNames, reagentRows, effects, itemRows, sparseRows,
-    appearanceLinks, appearances, itemEffects, itemEffectLinks] = tables;
-  const icons = await loadIconNames();
+    appearanceLinks, appearances, itemEffects, itemEffectLinks, spellRows, spellMiscRows, durationRows, radiusRows,
+    auraOptionRows] = tables;
+  const [icons, classicDb, eraEffects] = await Promise.all([
+    loadIconNames(), loadClassicDb(), downloadTable("SpellEffect", ERA_BUILD),
+  ]);
 
   // Professions: top-level skill lines (not the per-tier children) with a profession name and category.
-  const professions = PROFESSIONS.map(({ key, name }) => {
+  const professions = PROFESSIONS.map(({ key, name, tier }) => {
     const matches = skillLines.filter((line) => line.DisplayName_lang === name
       && toInt(line.ParentSkillLineID) === 0 && PROFESSION_CATEGORIES.has(toInt(line.CategoryID)));
     if (matches.length !== 1) {
       throw new Error(`expected one top-level skill line named ${name}, found ${matches.length}`);
     }
-    return { key, name, skillLine: toInt(matches[0].ID) };
+    return { key, name, tier, skillLine: toInt(matches[0].ID) };
   });
   const professionBySkillLine = new Map(professions.map((profession) => [profession.skillLine, profession]));
 
@@ -321,6 +343,48 @@ const main = async () => {
     itemEffectLinks.map((row) => ({ effect: toInt(row.ItemEffectID), item: toInt(row.ItemID) })),
     learns,
   );
+
+  // Learnable level: the lowest skill a recipe item or a trainer asks, or 1 for recipes that come with the profession.
+  // The client tables say 1 for nearly everything (SkillLineAbility.MinSkillLineRank), so they aren't used.
+  const requiredRankByItem = new Map(sparseRows.map((row) => [toInt(row.ID), toInt(row.RequiredSkillRank)]));
+  const eraLearns = new Map(learns);
+  for (const effect of eraEffects.filter((row) => toInt(row.Effect) === SPELL_EFFECT_LEARN_SPELL)) {
+    const spell = toInt(effect.SpellID);
+    eraLearns.set(spell, [...(eraLearns.get(spell) ?? []), toInt(effect.EffectTriggerSpell)]);
+  }
+  const trainerLevels = trainerSkillLevels(
+    [...readSqlTable(classicDb, "npc_trainer"), ...readSqlTable(classicDb, "npc_trainer_template")],
+    eraLearns,
+    new Set(professions.map((profession) => profession.skillLine)),
+  );
+  // Where each recipe's level came from, by `<profession>:<spell>`, for the report.
+  const learnOrigin = new Map();
+  const usedByHand = new Set();
+  const learnLevel = (ability, key) => {
+    const spell = toInt(ability.Spell);
+    // Item and trainer levels first. "Comes with the profession" (AcquireMethod 1) only says 1 when nothing else does.
+    const candidates = [
+      ...(taughtByItem.get(spell) ?? []).map((item) => ["item", requiredRankByItem.get(item) ?? 0]),
+      ["trainer", trainerLevels.get(spell) ?? 0],
+    ].filter(([, level]) => level > 0).sort(([, x], [, y]) => x - y);
+    const byHand = LEARN_BY_HAND[key];
+    if (byHand !== undefined) {
+      if (candidates.length > 0) {
+        throw new Error(`LEARN_BY_HAND ${key} is no longer needed: a ${candidates[0][0]} gives ${candidates[0][1]}. `
+          + "Remove the entry.");
+      }
+      usedByHand.add(key);
+      candidates.push(["hand", byHand]);
+    }
+    if (candidates.length === 0 && toInt(ability.AcquireMethod) === ACQUIRE_WITH_PROFESSION) {
+      candidates.push(["profession", 1]);
+    }
+    if (candidates.length === 0) {
+      return undefined;
+    }
+    learnOrigin.set(key, candidates[0][0]);
+    return candidates[0][1];
+  };
 
   // Recipes: one per (profession, spell) ability row that has reagents or creates an item.
   const recipes = [];
@@ -354,11 +418,14 @@ const main = async () => {
       name: spellNameById.get(ability.Spell) ?? `Spell ${ability.Spell}`,
       profession: profession.key,
       category: toInt(ability.TradeSkillCategoryID),
-      minSkill: toInt(ability.MinSkillLineRank),
       trivialLow: toInt(ability.TrivialSkillLineRankLow),
       trivialHigh: toInt(ability.TrivialSkillLineRankHigh),
       source: taughtByItem.has(toInt(ability.Spell)) ? "item" : "trainer",
     };
+    const learn = learnLevel(ability, key);
+    if (learn !== undefined) {
+      recipe.learn = learn;
+    }
     if (!spellNameById.has(ability.Spell)) {
       warnings.push(`spell ${ability.Spell} has no name`);
     }
@@ -371,6 +438,10 @@ const main = async () => {
     recipes.push(recipe);
   }
   recipes.sort((a, b) => a.id - b.id || a.profession.localeCompare(b.profession));
+  const unusedByHand = Object.keys(LEARN_BY_HAND).filter((key) => !usedByHand.has(key));
+  if (unusedByHand.length > 0) {
+    throw new Error(`LEARN_BY_HAND names no recipe: ${unusedByHand.join(", ")}. Fix or remove the entries.`);
+  }
 
   const referencedItems = (list) => new Set(list.flatMap((recipe) => [
     ...(recipe.item ? [recipe.item] : []), ...recipe.reagents.map((reagent) => reagent.item),
@@ -378,13 +449,65 @@ const main = async () => {
   const excluded = new Set(EXCLUDED_CATEGORIES.map((name) => name.toLowerCase()));
   const isExcluded = (recipe) => {
     const name = categoryById.get(String(recipe.category))?.Name_lang ?? "";
-    return excluded.has(name.toLowerCase());
+    // Category 0: an ability the profession window doesn't list (the old Basic Campfire; Camping has the new one).
+    return recipe.category === 0 || excluded.has(name.toLowerCase()) || (recipe.learn ?? 0) > MAX_LEARN_SKILL;
   };
+  const tooHigh = recipes.filter((recipe) => (recipe.learn ?? 0) > MAX_LEARN_SKILL);
   const dropped = recipes.filter(isExcluded);
   recipes.splice(0, recipes.length, ...recipes.filter((recipe) => !isExcluded(recipe)));
   const keptItems = referencedItems(recipes);
   const droppedItems = [...referencedItems(dropped)].filter((id) => !keptItems.has(id)).length;
-  log(`dropped ${dropped.length} recipes (${EXCLUDED_CATEGORIES.join(", ")}) and ${droppedItems} items only they use`);
+  log(`dropped ${dropped.length} recipes (no category, ${EXCLUDED_CATEGORIES.join(", ")}, or learnable above `
+    + `${MAX_LEARN_SKILL}) `
+    + `and ${droppedItems} items only they use`);
+  log(`  without a category: ${dropped.filter((recipe) => recipe.category === 0).map((recipe) => recipe.name).join(", ")
+    || "none"}`);
+  log(`  above ${MAX_LEARN_SKILL}: ${tooHigh.map((recipe) => `${recipe.name} ${recipe.learn}`).join(", ") || "none"}`);
+
+  // Descriptions: the "Use:" text of the created item, with its $ tokens resolved. A token the resolver doesn't know
+  // fails the build: extend scripts/descriptions.mjs rather than shipping "$s1".
+  const baseRows = (rows) => rows.filter((row) => toInt(row.DifficultyID) === 0);
+  const spellText = new Map(spellRows.map((row) => [toInt(row.ID), row.Description_lang]));
+  for (const { spell, from, to } of DESCRIPTION_PATCHES) {
+    const text = spellText.get(spell) ?? "";
+    if (!text.includes(from)) {
+      throw new Error(`description patch for spell ${spell} no longer applies: ${from} is gone, remove the patch`);
+    }
+    spellText.set(spell, text.replaceAll(from, to));
+  }
+  const radiusById = new Map(radiusRows.map((row) => [toInt(row.ID), Number(row.Radius)]));
+  const effectByKey = new Map(baseRows(effects).map((row) => [`${row.SpellID}:${row.EffectIndex}`, {
+    base: Number(row.EffectBasePointsF),
+    variance: Number(row.Variance),
+    period: toInt(row.EffectAuraPeriod),
+    radius: radiusById.get(toInt(row.EffectRadiusIndex_0)) ?? 0,
+  }]));
+  const durationById = new Map(durationRows.map((row) => [toInt(row.ID), toInt(row.Duration)]));
+  const durationBySpell = new Map(baseRows(spellMiscRows).map((row) => [
+    toInt(row.SpellID), durationById.get(toInt(row.DurationIndex)),
+  ]));
+  const stacksBySpell = new Map(baseRows(auraOptionRows).map((row) => [toInt(row.SpellID), toInt(row.CumulativeAura)]));
+  const spells = {
+    description: (id) => spellText.get(id),
+    effect: (id, index) => effectByKey.get(`${id}:${index}`),
+    duration: (id) => durationBySpell.get(id),
+    stacks: (id) => stacksBySpell.get(id),
+  };
+  const useSpellsByItem = new Map();
+  for (const link of itemEffectLinks) {
+    const effect = itemEffectById.get(toInt(link.ItemEffectID));
+    if (effect && effect.trigger === TRIGGER_USE) {
+      const item = toInt(link.ItemID);
+      useSpellsByItem.set(item, [...(useSpellsByItem.get(item) ?? []), effect.spell]);
+    }
+  }
+  // An item's "Use:" texts, one per use effect. Unresolved tokens fail the build once the items are built.
+  const unresolvedTokens = [];
+  const useTexts = (itemId) => (useSpellsByItem.get(itemId) ?? []).map((spell) => {
+    const { text, unresolved } = resolveDescription(spell, spells);
+    unresolved.forEach((token) => unresolvedTokens.push(`item ${itemId} (spell ${spell}): ${token}`));
+    return text;
+  }).filter(Boolean);
 
   // Items: only those the recipes reference.
   const itemById = byId(itemRows);
@@ -438,17 +561,28 @@ const main = async () => {
     }
     // Without an ItemSparse row there is no quality either: default to common (1).
     items[id] = { name: name || `Item ${id}`, quality: sparse ? toInt(sparse.OverallQualityID) : 1, icon };
+    const use = useTexts(id);
+    if (use.length > 0) {
+      items[id].use = use;
+    }
     classes.set(id, { classId: toInt(item?.ClassID), subclassId: toInt(item?.SubclassID) });
   }
 
+  if (unresolvedTokens.length > 0) {
+    throw new Error(`unresolved description tokens:\n  ${unresolvedTokens.join("\n  ")}`);
+  }
+
   // Gatherables per profession.
-  const allowLists = {
-    fishing: FISHING_ITEMS, mining: MINING_GEMS, herbalism: HERBALISM_ITEMS, skinning: SKINNING_ITEMS,
-  };
+  const allowLists = { fishing: FISHING_ITEMS, herbalism: HERBALISM_ITEMS };
   const gatherables = classifyGatherables(classes, recipes, allowLists);
+  // An id the client doesn't know is a typo: fail. One that no kept recipe uses is left out of the data and reported.
+  const unusedAllowed = [];
   for (const id of Object.values(allowLists).flat()) {
-    if (!recipes.some((recipe) => recipe.reagents.some((reagent) => reagent.item === id))) {
-      throw new Error(`allow-listed item ${id} is not a reagent in the data`);
+    if (!itemById.has(String(id))) {
+      throw new Error(`allow-listed item ${id} is not in the client's Item table`);
+    }
+    if (!itemIds.has(id)) {
+      unusedAllowed.push(id);
     }
   }
 
@@ -463,24 +597,28 @@ const main = async () => {
     return { ...profession, categories, gatherables: gatherables[profession.key] ?? [] };
   });
 
-  // Cloth is no SkillLine: a synthetic entry, listed like a gathering profession.
-  output.push({
-    key: CLOTH_KEY, name: "Cloth", skillLine: null, synthetic: true, categories: [],
-    gatherables: gatherables[CLOTH_KEY] ?? [],
-  });
-
-  // Known locations: zone names per Herbalism and Mining gatherable, most spawns first.
+  // Known locations: zone names per Herbalism gatherable, most spawns first.
   const [areaRows, objectText, deltaText] = await Promise.all([
     downloadTable("AreaTable"), ...QUESTIE_FILES.map(downloadQuestieFile),
   ]);
   const locatable = new Set(LOCATION_PROFESSIONS.flatMap((key) => gatherables[key] ?? []));
-  for (const item of LOCATION_RULES.flatMap((rule) => rule.items)) {
-    if (!locatable.has(item)) {
-      throw new Error(`location rule item ${item} is not a Herbalism or Mining gatherable in the data`);
-    }
-  }
+  // A rule item the client doesn't know is a typo: fail. One that is no kept Herbalism gatherable is left out.
+  const skippedRuleItems = new Set();
+  const rules = LOCATION_RULES.map((rule) => ({
+    ...rule,
+    items: rule.items.filter((item) => {
+      if (!itemById.has(String(item))) {
+        throw new Error(`location rule item ${item} is not in the client's Item table`);
+      }
+      if (!locatable.has(item)) {
+        skippedRuleItems.add(item);
+      }
+      return locatable.has(item);
+    }),
+  })).filter((rule) => rule.items.length > 0);
   const areaNames = new Map(areaRows.map((row) => [toInt(row.ID), row.AreaName_lang]));
-  const { located, unmatched } = locateItems(readQuestieObjects(objectText, deltaText), LOCATION_RULES);
+  const questieObjects = readQuestieObjects(objectText, deltaText);
+  const { located, unmatched } = locateItems(questieObjects, rules);
   const locationItems = {};
   const unnamedZones = new Set();
   for (const item of [...located.keys()].sort((a, b) => a - b)) {
@@ -490,9 +628,60 @@ const main = async () => {
       locationItems[item] = names;
     }
   }
+
+  // Fish: the zones whose fishing loot has them (CMaNGOS, by AreaTable id, subzones counted as their zone), then the
+  // zones where a pool that yields them spawns (pool loot from CMaNGOS, pool spawns from QuestieDB's Forever data).
+  const parentById = new Map(areaRows.map((row) => [toInt(row.ID), toInt(row.ParentAreaID)]));
+  const zoneOf = (area) => {
+    let zone = area;
+    for (let depth = 0; parentById.get(zone) && depth < 10; depth += 1) {
+      zone = parentById.get(zone);
+    }
+    return zone;
+  };
+  const fish = gatherables.fishing ?? [];
+  const references = readSqlTable(classicDb, "reference_loot_template");
+  const fishedIn = fishingAreas(readSqlTable(classicDb, "fishing_loot_template"), references, fish);
+  const yields = poolYields(readSqlTable(classicDb, "gameobject_template"),
+    readSqlTable(classicDb, "gameobject_loot_template"), references, fish);
+  const fishWithout = [];
+  for (const item of fish) {
+    const chances = new Map();
+    for (const [area, chance] of fishedIn.get(item) ?? []) {
+      const name = areaNames.get(zoneOf(area));
+      if (!name) {
+        unnamedZones.add(area);
+      } else {
+        chances.set(name, Math.max(chances.get(name) ?? 0, chance));
+      }
+    }
+    const spawns = new Map();
+    for (const [pool, caught] of yields) {
+      if (!caught.includes(item)) {
+        continue;
+      }
+      for (const [zone, count] of questieObjects.get(pool)?.zones ?? []) {
+        const name = areaNames.get(zoneOf(zone));
+        if (name) {
+          spawns.set(name, (spawns.get(name) ?? 0) + count);
+        } else {
+          unnamedZones.add(zone);
+        }
+      }
+    }
+    const names = orderFishZones(chances, spawns);
+    if (names.length > 0) {
+      locationItems[item] = names;
+    } else {
+      fishWithout.push(item);
+    }
+  }
+
   const locations = {
     source: `QuestieDB ${QUESTIE_COMMIT} (GPLv3, https://github.com/Questie/QuestieDB): `
-      + "only the zones each node spawns in, no files or coordinates",
+      + "only the zones each node and fishing pool spawns in, no files or coordinates. "
+      + `CMaNGOS classic-db ${CLASSICDB_COMMIT} (GPLv3, https://github.com/cmangos/classic-db): `
+      + "only the zones each fish is caught in and the fish each pool yields, no files or rows",
     build: BUILD,
     items: locationItems,
   };
@@ -516,16 +705,30 @@ const main = async () => {
     const gatherableCount = String(profession.gatherables.length).padStart(11);
     log(`${profession.name.padEnd(16)} ${String(count).padStart(7)}  ${gatherableCount}`);
   }
-  log(`\nlocations for ${Object.keys(locationItems).length} of ${locatable.size} Herbalism and Mining gatherables`);
+  const herbsLocated = [...locatable].filter((id) => locationItems[id]).length;
+  log(`\nlocations for ${herbsLocated} of ${locatable.size} Herbalism gatherables`);
   for (const key of LOCATION_PROFESSIONS) {
     const lacking = (gatherables[key] ?? []).filter((id) => !locationItems[id]);
     log(`  ${key} without locations: ${lacking.map((id) => `${id} ${items[id].name}`).join(", ") || "none"}`);
   }
+  log(`  rule items that are no kept Herbalism gatherable, left out: ${[...skippedRuleItems].join(", ") || "none"}`);
   const unmatchedNames = unmatched.map((rule) => rule.node ?? rule.ids.join("/")).join(", ");
+  log(`\nfish without locations: ${fishWithout.map((id) => `${id} ${items[id].name}`).join(", ") || "none"}`);
   log(`  rules matching no object with spawns: ${unmatchedNames || "none"}`);
   log(`  spawn zones without an AreaTable name, skipped: ${[...unnamedZones].join(", ") || "none"}`);
   const fromItems = recipes.filter((recipe) => recipe.source === "item").length;
+  const unknownLearn = recipes.filter((recipe) => recipe.learn === undefined);
+  const fromOrigin = (origin) => recipes
+    .filter((recipe) => learnOrigin.get(`${recipe.profession}:${recipe.id}`) === origin).length;
+  log(`\nlearnable level from a recipe item ${fromOrigin("item")}, a trainer ${fromOrigin("trainer")}, `
+    + `the profession ${fromOrigin("profession")}, by hand ${fromOrigin("hand")}, unknown ${unknownLearn.length}:`);
+  log(`  ${unknownLearn.map((recipe) => `${recipe.profession}:${recipe.name}`).join(", ") || "none"}`);
   log(`\nrecipes taught by an item ${fromItems}, by a trainer or with the profession ${recipes.length - fromItems}`);
+  const undescribed = recipes.filter((recipe) => !items[recipe.item]?.use).map((recipe) => recipe.name);
+  log(`\nitems with a "Use:" text ${Object.values(items).filter((item) => item.use).length} of ${itemIds.size}; `
+    + `recipes whose item has none: ${undescribed.length}`);
+  log(`  ${undescribed.join(", ") || "none"}`);
+  log(`\nallow-listed items no kept recipe uses, left out: ${unusedAllowed.join(", ") || "none"}`);
   log(`\nrecipes ${recipes.length}, items ${itemIds.size}, items without icon ${withoutIcon}`);
 
   // Validation of the gatherable assumptions against the live data.
@@ -554,7 +757,7 @@ const main = async () => {
       log(`  ${id} ${items[id].name}`);
     }
   }
-  log("\nuncrafted reagents assigned to no gatherer, class 7 and herb/ore/hide-like names:");
+  log("\nuncrafted reagents assigned to no gatherer, class 7, 12 or 15:");
   for (const id of [...itemIds].filter((itemId) => !created.has(itemId) && !gathered.has(itemId))) {
     const { classId, subclassId } = classes.get(id);
     if (classId === 7 || classId === 15 || classId === 12) {

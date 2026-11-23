@@ -1,4 +1,5 @@
 import type { ProfessionKey } from "../data";
+import { PROFESSION_KEYS } from "../data/keys";
 import type { AppState, Store } from "./store";
 
 export const STORAGE_KEY = "hanto:v1";
@@ -11,8 +12,7 @@ export const MAX_NOTE_LENGTH = 1000;
  * transient and not saved.
  */
 export interface SavedData {
-  chosen: ProfessionKey[];
-  active: ProfessionKey | null;
+  active: ProfessionKey;
   collapsed: string[];
   /** `recipeKey`s of known recipes. */
   known: string[];
@@ -22,7 +22,7 @@ export interface SavedData {
 }
 
 export const emptySaved = (): SavedData => ({
-  chosen: [], active: null, collapsed: [], known: [], knownOnly: false, notes: {},
+  active: PROFESSION_KEYS[0], collapsed: [], known: [], knownOnly: false, notes: {},
 });
 
 export const serialize = (data: SavedData): string => JSON.stringify({ version: VERSION, ...data });
@@ -36,6 +36,8 @@ const strings = (value: unknown): string[] =>
 /**
  * Reads saved data back. Anything unreadable (not JSON, another version, wrong types) gives a clean start, and bad
  * pieces inside valid data are dropped one by one. Never throws. `validKeys` are the professions that exist.
+ * Saves from before the fixed tabs also hold `chosen` (the picked professions): it is ignored, and their notes and
+ * known flags for the five professions carry over.
  */
 export const parse = (raw: string | null, validKeys: ReadonlySet<string>): SavedData => {
   try {
@@ -48,16 +50,13 @@ export const parse = (raw: string | null, validKeys: ReadonlySet<string>): Saved
     const isRecipeKey = (key: string) => /^[a-z-]+:\d+$/.test(key) && isProfession(key.split(":")[0]);
     const isNoteKey = (key: string) => isRecipeKey(key) || /^item:\d+$/.test(key);
 
-    const chosen = [...new Set(strings(data.chosen).filter(isProfession))] as ProfessionKey[];
-    const active = typeof data.active === "string" && chosen.includes(data.active as ProfessionKey)
-      ? data.active as ProfessionKey
-      : chosen[0] ?? null;
+    const active = typeof data.active === "string" && isProfession(data.active)
+      ? data.active as ProfessionKey : PROFESSION_KEYS[0];
     const notes = isRecord(data.notes)
       ? Object.fromEntries(Object.entries(data.notes).flatMap(([key, text]): [string, string][] =>
         isNoteKey(key) && typeof text === "string" && text !== "" ? [[key, text.slice(0, MAX_NOTE_LENGTH)]] : []))
       : {};
     return {
-      chosen,
       active,
       collapsed: strings(data.collapsed),
       known: [...new Set(strings(data.known).filter(isRecipeKey))],
@@ -70,7 +69,6 @@ export const parse = (raw: string | null, validKeys: ReadonlySet<string>): Saved
 };
 
 export const toSaved = (state: AppState): SavedData => ({
-  chosen: state.chosen,
   active: state.active,
   collapsed: [...state.collapsed],
   known: [...state.known],
@@ -80,11 +78,9 @@ export const toSaved = (state: AppState): SavedData => ({
 
 /** The saved part of the state, with the transient fields at their defaults. */
 export const fromSaved = (data: SavedData): AppState => ({
-  chosen: data.chosen,
   active: data.active,
   selection: null,
   collapsed: new Set(data.collapsed),
-  view: data.chosen.length > 0 ? "list" : "picker",
   detailOpen: false,
   known: new Set(data.known),
   knownOnly: data.knownOnly,
@@ -111,7 +107,7 @@ const write = (state: AppState) => {
 };
 
 const savedFieldsChanged = (a: AppState, b: AppState): boolean =>
-  a.chosen !== b.chosen || a.active !== b.active || a.collapsed !== b.collapsed || a.known !== b.known
+  a.active !== b.active || a.collapsed !== b.collapsed || a.known !== b.known
   || a.knownOnly !== b.knownOnly || a.notes !== b.notes;
 
 /** Saves the store about 300 ms after its last saved-field change, and right away when the page is hidden. */

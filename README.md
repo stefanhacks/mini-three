@@ -11,6 +11,7 @@ Node 22 (see `.nvmrc`).
 | Command | Does |
 |---|---|
 | `npm run dev` | Local dev server |
+| `npm run data` | Regenerates `src/data/*.json`, see [docs/DATA.md](docs/DATA.md) |
 | `npm run build` | Production build into `dist` |
 | `npm run preview` | Serve the `dist` build locally |
 | `npm run typecheck` | `tsc` |

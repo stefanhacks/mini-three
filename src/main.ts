@@ -60,8 +60,8 @@ let built = { width: 0, height: 0 };
 let popup: Popup | null = null;
 
 /**
- * Scales and positions the popup for the current mode. Every build must end here: a popup rebuilt outside a resize
- * (the mobile tab strip after a picker change) otherwise sits at (0, 0), off its margin.
+ * Scales and positions the popup for the current mode. Every build must end here, or the popup sits at (0, 0),
+ * off its margin.
  */
 const place = (width: number, height: number) => {
   if (!popup) {
@@ -137,13 +137,6 @@ layout(app.screen.width, app.screen.height);
 // A resize skipped while typing is applied once the field lets go.
 [notesField.element, searchField.element].forEach((field) => {
   field.addEventListener("blur", () => layout(app.screen.width, app.screen.height));
-});
-
-// The mobile tab strip is sized for the chosen professions: rebuild when they change, before the next frame.
-store.subscribe((state, previous) => {
-  if (mode === "mobile" && state.chosen !== previous.chosen) {
-    app.ticker.addOnce(() => build(app.screen.width, app.screen.height));
-  }
 });
 
 // Clicking outside the window, or pressing B, cycles the background scene.

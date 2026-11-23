@@ -126,7 +126,8 @@ export const createScrollList = (
         } else if (row.kind === "recipe") {
           text.text = row.recipe.name;
           text.style = TEXT_STYLES.row;
-          side.text = row.recipe.trivialLow > 0 ? String(row.recipe.trivialLow) : "";
+          // The skill it is learnable at; "??" when no source knows it.
+          side.text = row.recipe.learn !== undefined ? String(row.recipe.learn) : "??";
         } else {
           const item = itemOf(row.itemId);
           text.text = item.name;

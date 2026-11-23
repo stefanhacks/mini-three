@@ -1,31 +1,15 @@
 import {
-  CLOTH_KEY, type Item, type Profession, type ProfessionKey, type Recipe, items, locations, professions, recipes,
+  type Item, type Profession, type ProfessionKey, type Recipe, items, locations, professions, recipes,
 } from ".";
 
-/** Icon basenames (zamimg) for the profession tabs, picker and portrait. */
+/** Icon basenames (zamimg) for the profession tabs and portrait. */
 export const PROFESSION_ICONS: Record<ProfessionKey, string> = {
   alchemy: "trade_alchemy",
-  blacksmithing: "trade_blacksmithing",
-  enchanting: "trade_engraving",
-  engineering: "trade_engineering",
-  leatherworking: "inv_misc_armorkit_17",
-  tailoring: "trade_tailoring",
   herbalism: "spell_nature_naturetouchgrow",
-  mining: "trade_mining",
-  skinning: "inv_misc_pelt_wolf_01",
   cooking: "inv_misc_food_15",
-  "first-aid": "spell_holy_sealofsacrifice",
   fishing: "trade_fishing",
-  poisons: "trade_brewpoison",
-  [CLOTH_KEY]: "inv_fabric_linen_01",
+  "first-aid": "spell_holy_sealofsacrifice",
 };
-
-/** Picker groups, in display order. */
-export const PROFESSION_GROUPS: { title: string; keys: ProfessionKey[] }[] = [
-  { title: "Crafting", keys: ["alchemy", "blacksmithing", "enchanting", "engineering", "leatherworking", "tailoring"] },
-  { title: "Gathering", keys: ["herbalism", "mining", "skinning", CLOTH_KEY] },
-  { title: "Secondary", keys: ["cooking", "first-aid", "fishing", "poisons"] },
-];
 
 export const professionByKey = new Map<ProfessionKey, Profession>(professions.map((p) => [p.key, p]));
 

@@ -17,18 +17,17 @@ describe("notes editing", () => {
   });
 
   it("keeps an edit only while its entry is open in the list", () => {
-    const base = { ...fromSaved({ ...emptySaved(), chosen: ["alchemy"], active: "alchemy" }), detailOpen: true,
+    const base = { ...fromSaved(emptySaved()), detailOpen: true,
       editing: { key: "item:1", draft: "x" } };
     expect(editStillValid(base, "item:1")).toBe(true);
     expect(editStillValid(base, "item:2")).toBe(false);
     expect(editStillValid(base, null)).toBe(false);
     expect(editStillValid({ ...base, detailOpen: false }, "item:1")).toBe(false);
-    expect(editStillValid({ ...base, view: "picker" }, "item:1")).toBe(false);
     expect(editStillValid({ ...base, editing: null }, "item:1")).toBe(false);
   });
 
   it("applies the known flag with the note on Save, and drops both on Cancel", () => {
-    const store = createStore(fromSaved({ ...emptySaved(), chosen: ["alchemy"], active: "alchemy" }));
+    const store = createStore(fromSaved(emptySaved()));
     startEdit(store, "alchemy:7837", true);
     setKnownDraft(store, true);
     expect(store.get().known.has("alchemy:7837")).toBe(false);

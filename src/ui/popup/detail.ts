@@ -1,11 +1,11 @@
 import {
   Container, type FederatedPointerEvent, type FederatedWheelEvent, Graphics, Rectangle, type Text, type Ticker,
 } from "pixi.js";
-import { CLOTH_KEY, type Recipe } from "../../data";
+import type { Recipe } from "../../data";
 import {
   PROFESSION_ICONS, gathererOf, itemOf, locationsOf, professionByKey, recipeKey, recipesUsingItem,
 } from "../../data/model";
-import { type ArtKit, PALETTE, TEXT_STYLES, createStoneOverlay } from "../art";
+import { type ArtKit, PALETTE, QUALITY_COLORS, TEXT_STYLES, createStoneOverlay } from "../art";
 import { at, button, checkbox, iconSprite, itemSlot, label, piece, qualityColor, tinted } from "../widgets";
 import { createDragScroll } from "./dragScroll";
 
@@ -143,8 +143,19 @@ export const createDetailPane = (
     body.addChild(name);
     const subtitleY = Math.max(PAD + 38, name.y + name.height + 8);
     const sub = label(subtitle, TEXT_STYLES.label, textX, subtitleY);
-    body.addChild(fitWidth(sub, inner - ICON_SIZE - 12));
-    const dividerY = Math.max(PAD + ICON_SIZE + 18, subtitleY + 16);
+    // A subtitle too wide for one line (a recipe's learn, yellow and grey on a phone) wraps, growing downwards.
+    let subBottom = subtitleY + 16;
+    if (sub.width > inner - ICON_SIZE - 12) {
+      const lineHeight = sub.height;
+      sub.style = sub.style.clone();
+      sub.style.wordWrap = true;
+      sub.style.wordWrapWidth = inner - ICON_SIZE - 12;
+      sub.anchor.set(0, 0);
+      sub.y = subtitleY - lineHeight / 2;
+      subBottom = sub.y + sub.height + 8;
+    }
+    body.addChild(sub);
+    const dividerY = Math.max(PAD + ICON_SIZE + 18, subBottom);
     body.addChild(at(piece(kit, "divider", inner, 2), PAD, dividerY));
     return dividerY + 2;
   };
@@ -185,6 +196,22 @@ export const createDetailPane = (
     return textY + blockHeight;
   };
 
+  /**
+   * An item's "Use:" texts, green as in the game's tooltip, wrapped at the pane width. Returns the top the
+   * notes block should start from (unchanged when there is no description).
+   */
+  const useBlock = (top: number, description: string[] | undefined): number => {
+    if (!description) {
+      return top;
+    }
+    const text = label(description.map((use) => `Use: ${use}`).join("\n"),
+      tinted(TEXT_STYLES.body, QUALITY_COLORS.uncommon), PAD, top + 8, 0, 0);
+    text.style.wordWrap = true;
+    text.style.wordWrapWidth = inner;
+    body.addChild(text);
+    return top + 14 + text.height;
+  };
+
   const clickable = (target: Container, itemId: number, hitWidth: number, hitHeight: number) => {
     target.eventMode = "static";
     target.cursor = "pointer";
@@ -200,9 +227,10 @@ export const createDetailPane = (
     const profession = professionByKey.get(recipe.profession);
     const created = recipe.item ? itemOf(recipe.item) : null;
     const editing = editHeight !== null;
-    // Most recipes are learnable at skill 1; the yellow and grey thresholds say when it is worth crafting.
+    // When it can be learned, then the yellow and grey thresholds that say when it is worth crafting.
     const subtitle = [
-      `${profession?.name ?? ""}${recipe.minSkill > 1 ? ` ${recipe.minSkill}` : ""}`,
+      profession?.name ?? "",
+      `learn ${recipe.learn ?? "??"}`,
       recipe.trivialLow > 0 ? `yellow ${recipe.trivialLow}, grey ${recipe.trivialHigh}` : "",
       recipe.count && recipe.count > 1 ? `creates ${recipe.count}` : "",
     ].filter(Boolean).join("  ·  ");
@@ -221,7 +249,7 @@ export const createDetailPane = (
       body.addChild(at(knownBox.view, PAD + inner - 72, PAD + 2));
     }
 
-    const sourceY = noteBlock(underDivider, text, editHeight) + SECTION_GAP;
+    const sourceY = noteBlock(useBlock(underDivider, created?.use), text, editHeight) + SECTION_GAP;
     const sourceLabel = label("Learned from:", TEXT_STYLES.label, PAD, sourceY);
     body.addChild(sourceLabel, label(recipe.source === "item" ? "Recipe item" : "Trainer", TEXT_STYLES.body,
       PAD + sourceLabel.width + 6, sourceY));
@@ -245,7 +273,7 @@ export const createDetailPane = (
   };
 
   /**
-   * "Found in" for Herbalism and Mining gatherables: the zones their nodes spawn in, most spawns first, as one
+   * "Found in" for herbs and fish: the zones their nodes spawn in or they are caught in, most likely first, as one
    * wrapped line. Returns the y where the next section starts (unchanged when the item has no known nodes).
    */
   const foundIn = (itemId: number, top: number): number => {
@@ -264,12 +292,12 @@ export const createDetailPane = (
   const showItem = (itemId: number, text: string, editHeight: number | null): number => {
     const item = itemOf(itemId);
     const gatherer = gathererOf(itemId);
-    const subtitle = !gatherer ? "Reagent" : gatherer.key === CLOTH_KEY ? "Cloth" : `Gathered with ${gatherer.name}`;
+    const subtitle = gatherer ? `Gathered with ${gatherer.name}` : "Reagent";
     const underDivider = heading(item.icon, item.quality, item.name, qualityColor(item.quality), subtitle, 0);
 
     const users = (recipesUsingItem.get(itemId) ?? []).slice()
       .sort((a, b) => a.profession.localeCompare(b.profession) || a.trivialLow - b.trivialLow);
-    const top = foundIn(itemId, noteBlock(underDivider, text, editHeight) + SECTION_GAP);
+    const top = foundIn(itemId, noteBlock(useBlock(underDivider, item.use), text, editHeight) + SECTION_GAP);
     body.addChild(label(`Used in ${users.length} recipe${users.length === 1 ? "" : "s"}:`, TEXT_STYLES.label,
       PAD, top));
     // The pane scrolls, so the whole list is shown.
