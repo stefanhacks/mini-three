@@ -1,5 +1,8 @@
 import { BlurFilter, Container, Rectangle, type Renderer, Sprite, type Texture } from "pixi.js";
+import { type BackgroundVariant, DEFAULT_BACKGROUND, nextBackground } from "./backgroundNames";
 import { type DrawContext, createDrawContext, createRandom, rgba } from "./draw";
+
+export * from "./backgroundNames";
 
 /** Size the scenes are drawn at. They are blurred, so a modest size upscales to any screen without looking soft. */
 export const BACKGROUND_WIDTH = 1024;
@@ -243,11 +246,7 @@ export const BACKGROUND_VARIANTS = {
   duskCoast,
   crystalCavern,
   mistyPeaks,
-} satisfies Record<string, (ctx: DrawContext) => void>;
-
-export type BackgroundVariant = keyof typeof BACKGROUND_VARIANTS;
-
-export const BACKGROUND_NAMES = Object.keys(BACKGROUND_VARIANTS) as BackgroundVariant[];
+} satisfies Record<BackgroundVariant, (ctx: DrawContext) => void>;
 
 /** Draws a scene, blurs it once with `BlurFilter`, and bakes the result into a texture. */
 export const renderBackground = (renderer: Renderer, variant: BackgroundVariant): Texture => {
@@ -282,7 +281,7 @@ export interface Backdrop {
 /**
  * A full-screen blurred scene. Each variant is baked the first time it is shown and kept, so cycling back is free.
  */
-export const createBackdrop = (renderer: Renderer, initial: BackgroundVariant = "moonlitForest"): Backdrop => {
+export const createBackdrop = (renderer: Renderer, initial: BackgroundVariant = DEFAULT_BACKGROUND): Backdrop => {
   const cache = new Map<BackgroundVariant, Texture>();
   const textureFor = (variant: BackgroundVariant): Texture => {
     const cached = cache.get(variant);
@@ -306,8 +305,7 @@ export const createBackdrop = (renderer: Renderer, initial: BackgroundVariant = 
       backdrop.resize(size.width, size.height);
     },
     next: () => {
-      const index = BACKGROUND_NAMES.indexOf(backdrop.variant);
-      backdrop.setVariant(BACKGROUND_NAMES[(index + 1) % BACKGROUND_NAMES.length]);
+      backdrop.setVariant(nextBackground(backdrop.variant));
       return backdrop.variant;
     },
     resize: (width, height) => {

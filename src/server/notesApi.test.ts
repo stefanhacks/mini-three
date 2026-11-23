@@ -83,10 +83,22 @@ describe("notes API", () => {
     ["an unknown profession", { key: "mining:7", note: "x" }],
     ["Known on an item", { key: "item:1", known: true }],
     ["a non-boolean Known", { key: "alchemy:7", known: "yes" }],
+    ["an unknown background", { background: "space" }],
+    ["a background with a note", { background: "duskCoast", key: "item:1", note: "x" }],
   ])("refuses %s", async(_name, body) => {
     const { store, entries } = memoryStore();
     expect((await put(store, body)).status).toBe(400);
     expect(entries()).toBeNull();
+  });
+
+  it("lets only the owner set the background, keeping the entries, and shows it to everyone", async() => {
+    const { store, entries } = memoryStore({ notes: { "item:2": "keep" }, known: [] });
+    expect((await put(store, { background: "duskCoast" }, "wrong")).status).toBe(401);
+    expect(entries()?.background).toBeUndefined();
+    expect((await put(store, { background: "duskCoast" })).status).toBe(200);
+    const response = await handleNotes(request("GET", "/api/notes"), store, KEY);
+    expect(await response.json()).toEqual({ notes: { "item:2": "keep" }, known: [], background: "duskCoast",
+      version: "v2" });
   });
 
   it("cuts a note to the length the app keeps", async() => {

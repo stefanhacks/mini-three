@@ -1,4 +1,5 @@
-import { type EntryChange, readEntries } from "./entries";
+import { type BackgroundVariant, DEFAULT_BACKGROUND } from "../ui/art/backgroundNames";
+import { type SharedChange, readEntries } from "./entries";
 import { type SavedChange, saveEdit, withChange } from "./notesEdit";
 import { NOTES_URL } from "./shared";
 import type { Store } from "./store";
@@ -55,6 +56,11 @@ export interface Owner {
    * every save sent so far has its answer.
    */
   save: () => Promise<void>;
+  /**
+   * Shows `background` and saves it for everyone, if the owner is logged in and the shared entries have loaded. A
+   * refused save goes back to the last scene the server took. Resolves like `save`.
+   */
+  setBackground: (background: BackgroundVariant) => Promise<void>;
 }
 
 /** The owner's session: logging in and out, and sending saves to the server one at a time, in order. */
@@ -62,6 +68,8 @@ export const createOwner = (store: Store, fetchJson: typeof fetch = fetch, keys 
   let key: string | null = null;
   let pending = 0;
   let queue = Promise.resolve();
+  /** The scene the server last took; null until the first background save. */
+  let savedBackground: BackgroundVariant | null = null;
 
   const check = async(candidate: string): Promise<LoginResult> => {
     try {
@@ -90,7 +98,7 @@ export const createOwner = (store: Store, fetchJson: typeof fetch = fetch, keys 
    * Sends one change, and returns why it failed, or null. On success the server's entries replace the shown ones,
    * once no other save is waiting.
    */
-  const send = async(change: EntryChange): Promise<string | null> => {
+  const send = async(change: SharedChange): Promise<string | null> => {
     try {
       const response = await fetchJson(NOTES_URL, {
         method: "PUT",
@@ -98,9 +106,10 @@ export const createOwner = (store: Store, fetchJson: typeof fetch = fetch, keys 
         body: JSON.stringify(change),
       });
       if (response.ok) {
-        const { notes, known } = readEntries(await response.json());
+        const { notes, known, background = DEFAULT_BACKGROUND } = readEntries(await response.json());
+        savedBackground = background;
         if (pending === 1) {
-          store.set({ notes, known: new Set(known) });
+          store.set({ notes, known: new Set(known), background });
         }
         return null;
       }
@@ -118,6 +127,15 @@ export const createOwner = (store: Store, fetchJson: typeof fetch = fetch, keys 
     if (message !== null) {
       store.set({ ...withChange(store.get(), undo), saveError: { key: change.key, message } });
     }
+  };
+
+  /** Runs `task` after every save sent before it. */
+  const enqueue = (task: () => Promise<void>) => {
+    pending += 1;
+    queue = queue.then(task).finally(() => {
+      pending -= 1;
+    });
+    return queue;
   };
 
   return {
@@ -143,13 +161,22 @@ export const createOwner = (store: Store, fetchJson: typeof fetch = fetch, keys 
     },
     logout,
     save: () => {
-      saveEdit(store).forEach((saved) => {
-        pending += 1;
-        queue = queue.then(() => push(saved)).finally(() => {
-          pending -= 1;
-        });
-      });
+      saveEdit(store).forEach((saved) => void enqueue(() => push(saved)));
       return queue;
+    },
+    setBackground: (background) => {
+      const state = store.get();
+      if (!state.canEdit || state.shared !== "ready" || background === state.background) {
+        return queue;
+      }
+      savedBackground ??= state.background;
+      store.set({ background });
+      return enqueue(async() => {
+        // Only the last waiting save undoes: earlier ones would flash scenes the owner already moved past.
+        if (await send({ background }) !== null && pending === 1 && savedBackground !== null) {
+          store.set({ background: savedBackground });
+        }
+      });
     },
   };
 };

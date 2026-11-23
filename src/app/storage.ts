@@ -1,5 +1,6 @@
 import type { ProfessionKey } from "../data";
 import { PROFESSION_KEYS } from "../data/keys";
+import { DEFAULT_BACKGROUND } from "../ui/art/backgroundNames";
 import { isRecord, strings } from "./entries";
 import type { AppState, Store } from "./store";
 
@@ -55,7 +56,10 @@ export const toSaved = (state: AppState): SavedData => ({
   knownOnly: [...state.knownOnly],
 });
 
-/** The saved part of the state, with the rest at its start: no notes until the server sends them, not editing. */
+/**
+ * The saved part of the state, with the rest at its start: no notes and the default scene until the server sends
+ * them, not editing.
+ */
 export const fromSaved = (data: SavedData): AppState => ({
   active: data.active,
   selection: null,
@@ -65,6 +69,7 @@ export const fromSaved = (data: SavedData): AppState => ({
   knownOnly: new Set(data.knownOnly),
   search: null,
   notes: {},
+  background: DEFAULT_BACKGROUND,
   shared: "loading",
   canEdit: false,
   saveError: null,

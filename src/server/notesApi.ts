@@ -1,6 +1,7 @@
 import {
-  type EntryChange, type SharedEntries, applyChange, isNoteKey, isRecipeKey, isRecord, noteFromDraft,
+  type SharedChange, type SharedEntries, applyChange, isNoteKey, isRecipeKey, isRecord, noteFromDraft,
 } from "../app/entries";
+import { isBackground } from "../ui/art/backgroundNames";
 
 /**
  * Where the shared entries live. `write` stores `entries` only if the stored version is still `version` (null: none
@@ -44,9 +45,15 @@ const bearer = (req: Request): string | null => /^Bearer (.+)$/.exec(req.headers
   ?? null;
 
 /** The change a request body asks for, or the reason it is refused. */
-export const readChange = (body: unknown): EntryChange | string => {
+export const readChange = (body: unknown): SharedChange | string => {
+  if (isRecord(body) && body.background !== undefined) {
+    if (Object.keys(body).length !== 1) {
+      return "expected { background } alone";
+    }
+    return isBackground(body.background) ? { background: body.background } : "not a background scene";
+  }
   if (!isRecord(body) || typeof body.key !== "string") {
-    return "expected { key, note } or { key, known }";
+    return "expected { key, note }, { key, known } or { background }";
   }
   const { key } = body;
   if (typeof body.note === "string" && body.known === undefined) {
@@ -90,9 +97,9 @@ const save = async(req: Request, store: EntriesStore): Promise<Response> => {
 
 /**
  * The notes API.
- * - `GET /api/notes`: everyone. The shared notes and Known flags, and their version.
- * - `PUT /api/notes`: the owner only (`Authorization: Bearer <edit key>`). Applies one change, and answers with the
- *   entries after it.
+ * - `GET /api/notes`: everyone. The shared notes, Known flags and background scene, and their version.
+ * - `PUT /api/notes`: the owner only (`Authorization: Bearer <edit key>`). Applies one change (a note, a Known flag
+ *   or the background), and answers with the entries after it.
  * - `GET /api/session`: 204 when the request carries the edit key, else 401. The app checks a key with it on login.
  *
  * `editKey` undefined (not configured) refuses every key.
