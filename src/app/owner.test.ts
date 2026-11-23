@@ -3,6 +3,7 @@ import type { SharedEntries } from "./entries";
 import { setDraft, setKnownDraft, startEdit } from "./notesEdit";
 import { type KeyStorage, createOwner } from "./owner";
 import { type EntriesStore, handleNotes } from "../server/notesApi";
+import { loadShared } from "./shared";
 import { emptySaved, fromSaved } from "./storage";
 import { createStore } from "./store";
 
@@ -45,6 +46,7 @@ const setup = (initial?: SharedEntries, savedKey: string | null = null) => {
   const store = createStore({
     ...fromSaved(emptySaved()), detailOpen: true, shared: "ready",
     notes: initial?.notes ?? {}, known: new Set(initial?.known ?? []),
+    ...(initial?.background ? { background: initial.background } : {}),
   });
   const owner = createOwner(store, remote.fetchJson, keys);
   return { remote, keys, store, owner };
@@ -115,6 +117,29 @@ describe("owner session", () => {
     expect(store.get().notes).toEqual({ "item:1": "old" });
     expect(store.get().saveError).toEqual({ key: "item:1", message: "Not saved: the server couldn't be reached." });
     expect(store.get().canEdit).toBe(true);
+  });
+
+  it("changes the background for every visitor, and only once logged in", async() => {
+    const { store, owner, remote } = setup();
+    await owner.setBackground("duskCoast");
+    expect(store.get().background).toBe("moonlitForest");
+    expect(remote.entries().background).toBeUndefined();
+    await owner.login(KEY);
+    await owner.setBackground("duskCoast");
+    expect(remote.entries().background).toBe("duskCoast");
+    const visitor = createStore(fromSaved(emptySaved()));
+    await loadShared(visitor, remote.fetchJson);
+    expect(visitor.get().background).toBe("duskCoast");
+  });
+
+  it("goes back to the last scene the server took when background saves fail", async() => {
+    const { store, owner, remote } = setup({ notes: {}, known: [], background: "duskCoast" });
+    await owner.login(KEY);
+    await owner.setBackground("crystalCavern");
+    remote.state.down = true;
+    void owner.setBackground("mistyPeaks");
+    await owner.setBackground("moonlitForest");
+    expect(store.get().background).toBe("crystalCavern");
   });
 
   it("logs out when the key stops working, undoing the save", async() => {

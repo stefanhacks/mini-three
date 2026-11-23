@@ -1,4 +1,5 @@
 import type { ProfessionKey } from "../data";
+import type { BackgroundVariant } from "../ui/art/backgroundNames";
 import type { Selection } from "../ui/popup/detail";
 
 export interface AppState {
@@ -20,7 +21,12 @@ export interface AppState {
   search: string | null;
   /** The owner's notes by `recipeKey` (recipes) or `itemKey` (items). From the server. */
   notes: Readonly<Record<string, string>>;
-  /** Whether `notes` and `known` arrived from the server yet: until then they are empty, and on failure stay so. */
+  /** The background scene the owner picked. From the server; the default until it arrives, and on failure. */
+  background: BackgroundVariant;
+  /**
+   * Whether `notes`, `known` and `background` arrived from the server yet: until then they are empty (the default
+   * scene), and on failure stay so.
+   */
   shared: "loading" | "ready" | "failed";
   /** The owner is logged in: notes and Known can be edited. Transient. */
   canEdit: boolean;

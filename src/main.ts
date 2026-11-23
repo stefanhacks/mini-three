@@ -7,7 +7,7 @@ import { loadShared } from "./app/shared";
 import { fromSaved, loadSaved, persist } from "./app/storage";
 import { createStore } from "./app/store";
 import { professions } from "./data";
-import { PALETTE, createArtKit, createBackdrop, loadFonts } from "./ui/art";
+import { PALETTE, createArtKit, createBackdrop, loadFonts, nextBackground } from "./ui/art";
 import { isTextField } from "./ui/dom";
 import { type LayoutMode, desktopScale, layoutMode, needsUpright } from "./ui/layout";
 import { selectionKey } from "./ui/popup/detail";
@@ -44,8 +44,17 @@ await Promise.all([
 document.body.appendChild(app.canvas);
 
 const kit = createArtKit(app.renderer);
-const backdrop = createBackdrop(app.renderer);
 const store = createStore(fromSaved(loadSaved(new Set(professions.map((profession) => profession.key)))));
+const backdrop = createBackdrop(app.renderer, store.get().background);
+// The scene is the owner's choice, from the server: hidden until it arrives, so visitors never see the default flash
+// past first.
+backdrop.view.visible = false;
+store.subscribe((state) => {
+  backdrop.view.visible = state.shared !== "loading";
+  if (state.background !== backdrop.variant) {
+    backdrop.setVariant(state.background);
+  }
+});
 const owner = createOwner(store);
 // Visitors always start with Known only on everywhere; the owner's browser keeps the last saved choice.
 if (!owner.remembered()) {
@@ -154,7 +163,8 @@ relayout();
 // A resize skipped while typing is applied once the field lets go.
 [notesField.element, searchField.element].forEach((field) => field.addEventListener("blur", relayout));
 
-// Clicking outside the window, or pressing B, cycles the background scene.
+// For the logged-in owner, clicking outside the window, or pressing B, cycles the background scene for everyone.
+const cycleBackground = () => void owner.setBackground(nextBackground(store.get().background));
 app.stage.eventMode = "static";
 app.stage.hitArea = app.screen;
 // A drag that starts on the list and ends outside the popup also taps the stage (their common ancestor), so only a
@@ -166,12 +176,12 @@ app.stage.on("pointerdown", (event) => {
 });
 app.stage.on("pointertap", (event) => {
   if (pressedOutside && outsidePopup(event.global.x, event.global.y)) {
-    backdrop.next();
+    cycleBackground();
   }
 });
 window.addEventListener("keydown", (event) => {
   if (event.key.toLowerCase() === "b" && !isTextField(event.target)) {
-    backdrop.next();
+    cycleBackground();
   } else if (event.key === "Escape" && !event.isComposing && !(event.target instanceof HTMLTextAreaElement)
     && store.get().search !== null) {
     // The notes field takes its own Escape (cancel the edit); anywhere else it closes search and clears the filter.
