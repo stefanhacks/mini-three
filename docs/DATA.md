@@ -59,7 +59,7 @@ The two GPLv3 sources are read at build time and reduced to facts. No file, row 
 
 It then prints a report. These lines are **expected**, but read them for anything new:
 
-- `above 300: none` today. Names here mean recipes were dropped: confirm they should be.
+- `above 300: Gurubashi Mojo Madness 315, Smoked Desert Dumplings 325` today. Names here mean recipes were dropped: confirm any new one should be.
 - `herbalism without locations`, `fish without locations`: no source knows the place. A new entry here after an update may mean a rule needs a new node name.
 - `rule items that are no kept Herbalism gatherable` and `allow-listed items no kept recipe uses`: hand-written ids no kept recipe needs. Left out on purpose.
 - `rules matching no object with spawns`: should be `none`. A name here means a node was renamed in QuestieDB.
