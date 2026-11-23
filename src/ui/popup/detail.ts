@@ -143,8 +143,19 @@ export const createDetailPane = (
     body.addChild(name);
     const subtitleY = Math.max(PAD + 38, name.y + name.height + 8);
     const sub = label(subtitle, TEXT_STYLES.label, textX, subtitleY);
-    body.addChild(fitWidth(sub, inner - ICON_SIZE - 12));
-    const dividerY = Math.max(PAD + ICON_SIZE + 18, subtitleY + 16);
+    // A subtitle too wide for one line (a recipe's learn, yellow and grey on a phone) wraps, growing downwards.
+    let subBottom = subtitleY + 16;
+    if (sub.width > inner - ICON_SIZE - 12) {
+      const lineHeight = sub.height;
+      sub.style = sub.style.clone();
+      sub.style.wordWrap = true;
+      sub.style.wordWrapWidth = inner - ICON_SIZE - 12;
+      sub.anchor.set(0, 0);
+      sub.y = subtitleY - lineHeight / 2;
+      subBottom = sub.y + sub.height + 8;
+    }
+    body.addChild(sub);
+    const dividerY = Math.max(PAD + ICON_SIZE + 18, subBottom);
     body.addChild(at(piece(kit, "divider", inner, 2), PAD, dividerY));
     return dividerY + 2;
   };
@@ -186,7 +197,7 @@ export const createDetailPane = (
   };
 
   /**
-   * The created item's "Use:" text, green as in the game's tooltip, wrapped at the pane width. Returns the top the
+   * An item's "Use:" texts, green as in the game's tooltip, wrapped at the pane width. Returns the top the
    * notes block should start from (unchanged when there is no description).
    */
   const useBlock = (top: number, description: string[] | undefined): number => {
@@ -238,7 +249,7 @@ export const createDetailPane = (
       body.addChild(at(knownBox.view, PAD + inner - 72, PAD + 2));
     }
 
-    const sourceY = noteBlock(useBlock(underDivider, recipe.description), text, editHeight) + SECTION_GAP;
+    const sourceY = noteBlock(useBlock(underDivider, created?.use), text, editHeight) + SECTION_GAP;
     const sourceLabel = label("Learned from:", TEXT_STYLES.label, PAD, sourceY);
     body.addChild(sourceLabel, label(recipe.source === "item" ? "Recipe item" : "Trainer", TEXT_STYLES.body,
       PAD + sourceLabel.width + 6, sourceY));
@@ -286,7 +297,7 @@ export const createDetailPane = (
 
     const users = (recipesUsingItem.get(itemId) ?? []).slice()
       .sort((a, b) => a.profession.localeCompare(b.profession) || a.trivialLow - b.trivialLow);
-    const top = foundIn(itemId, noteBlock(underDivider, text, editHeight) + SECTION_GAP);
+    const top = foundIn(itemId, noteBlock(useBlock(underDivider, item.use), text, editHeight) + SECTION_GAP);
     body.addChild(label(`Used in ${users.length} recipe${users.length === 1 ? "" : "s"}:`, TEXT_STYLES.label,
       PAD, top));
     // The pane scrolls, so the whole list is shown.

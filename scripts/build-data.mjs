@@ -455,23 +455,13 @@ const main = async () => {
       useSpellsByItem.set(item, [...(useSpellsByItem.get(item) ?? []), effect.spell]);
     }
   }
-  const undescribed = [];
+  // An item's "Use:" texts, one per use effect. Unresolved tokens fail the build once the items are built.
   const unresolvedTokens = [];
-  for (const recipe of recipes) {
-    const texts = (useSpellsByItem.get(recipe.item) ?? []).map((spell) => {
-      const { text, unresolved } = resolveDescription(spell, spells);
-      unresolved.forEach((token) => unresolvedTokens.push(`${recipe.name} (spell ${spell}): ${token}`));
-      return text;
-    }).filter(Boolean);
-    if (texts.length > 0) {
-      recipe.description = texts;
-    } else {
-      undescribed.push(recipe.name);
-    }
-  }
-  if (unresolvedTokens.length > 0) {
-    throw new Error(`unresolved description tokens:\n  ${unresolvedTokens.join("\n  ")}`);
-  }
+  const useTexts = (itemId) => (useSpellsByItem.get(itemId) ?? []).map((spell) => {
+    const { text, unresolved } = resolveDescription(spell, spells);
+    unresolved.forEach((token) => unresolvedTokens.push(`item ${itemId} (spell ${spell}): ${token}`));
+    return text;
+  }).filter(Boolean);
 
   // Items: only those the recipes reference.
   const itemById = byId(itemRows);
@@ -525,7 +515,15 @@ const main = async () => {
     }
     // Without an ItemSparse row there is no quality either: default to common (1).
     items[id] = { name: name || `Item ${id}`, quality: sparse ? toInt(sparse.OverallQualityID) : 1, icon };
+    const use = useTexts(id);
+    if (use.length > 0) {
+      items[id].use = use;
+    }
     classes.set(id, { classId: toInt(item?.ClassID), subclassId: toInt(item?.SubclassID) });
+  }
+
+  if (unresolvedTokens.length > 0) {
+    throw new Error(`unresolved description tokens:\n  ${unresolvedTokens.join("\n  ")}`);
   }
 
   // Gatherables per profession.
@@ -680,7 +678,9 @@ const main = async () => {
     + `the profession ${fromOrigin("profession")}, unknown ${unknownLearn.length}:`);
   log(`  ${unknownLearn.map((recipe) => `${recipe.profession}:${recipe.name}`).join(", ") || "none"}`);
   log(`\nrecipes taught by an item ${fromItems}, by a trainer or with the profession ${recipes.length - fromItems}`);
-  log(`\nrecipes without a "Use:" description: ${undescribed.length}`);
+  const undescribed = recipes.filter((recipe) => !items[recipe.item]?.use).map((recipe) => recipe.name);
+  log(`\nitems with a "Use:" text ${Object.values(items).filter((item) => item.use).length} of ${itemIds.size}; `
+    + `recipes whose item has none: ${undescribed.length}`);
   log(`  ${undescribed.join(", ") || "none"}`);
   log(`\nallow-listed items no kept recipe uses, left out: ${unusedAllowed.join(", ") || "none"}`);
   log(`\nrecipes ${recipes.length}, items ${itemIds.size}, items without icon ${withoutIcon}`);

@@ -39,7 +39,7 @@ The two GPLv3 sources are read at build time and reduced to facts. No file, row 
 - `learn` is the lowest skill a recipe item or trainer asks, or 1 for recipes that come with the profession. Unknown stays unset.
 - Herbs are the uncrafted reagents of item class 7, subclass 9, plus `HERBALISM_ITEMS`. Fish are exactly `FISHING_ITEMS`: the item tables can't tell fish from meat.
 - Herb zones come from `LOCATION_RULES` (which node yields which herb). Fish zones come from the fishing loot, then from pool spawns.
-- Recipe descriptions are the created item's "Use:" spell text, with its `$` tokens resolved by `scripts/descriptions.mjs`.
+- Every item with a "Use:" effect (potions, food, edible fish, camping items) carries its spell text as `use`, with its `$` tokens resolved by `scripts/descriptions.mjs`. A recipe shows its created item's.
 
 ## Reading the report
 
@@ -62,7 +62,7 @@ It then prints a report. These lines are **expected**, but read them for anythin
 - `rule items that are no kept Herbalism gatherable` and `allow-listed items no kept recipe uses`: hand-written ids no kept recipe needs. Left out on purpose.
 - `rules matching no object with spawns`: should be `none`. A name here means a node was renamed in QuestieDB.
 - `learnable level ... unknown N`: recipes with no `learn`. They stay and show no level. A big jump means a trainer or item source broke.
-- `recipes without a "Use:" description`: transmutes, dyes, oils and a few more. Expected.
+- `items with a "Use:" text ...; recipes whose item has none`: transmutes, dyes, oils and a few more. Expected.
 - `reagents whose bag family disagrees`: should be empty.
 - `uncrafted reagents with pet food type fish`: a checklist for `FISHING_ITEMS`. Fish listed here that are not in `FISHING_ITEMS` are either not fished (meat, clams) or missing: check each against `fishing_loot_template` before adding it.
 - `warnings`: should be 0.

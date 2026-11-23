@@ -49,9 +49,6 @@ export interface Recipe {
   // "item" when a recipe item (pattern, plans, formula...) teaches it. "trainer" otherwise: a trainer teaches it or it
   // comes with the profession (the client tables don't list trainers, so this is what's left without an item).
   source: "item" | "trainer";
-  // One text per "Use:" effect of the created item, as the game's tooltip shows
-  // them (tokens resolved, for a max-level character). Absent when the item has no use (dyes, transmutes, oils).
-  description?: string[];
   // Item created and how many, when the recipe creates one (enchants don't).
   item?: number;
   count?: number;
@@ -64,6 +61,9 @@ export interface Item {
   quality: number;
   // Icon basename: https://wow.zamimg.com/images/wow/icons/large/<icon>.jpg. Null when unknown.
   icon: string | null;
+  // One text per "Use:" effect, as the game's tooltip shows them (tokens resolved, for a max-level character):
+  // potions, food, edible fish, camping items. Absent when the item has none (dyes, transmute results, herbs).
+  use?: string[];
 }
 
 export const professions = professionsJson as unknown as Profession[];

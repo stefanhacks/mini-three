@@ -8,7 +8,7 @@ WoW: Hantō is a browser look-alike of the World of Warcraft: Forever profession
 - **List.** Per tab: gatherables (Herbalism's herbs, Fishing's fish) and recipes grouped by the game's category, sorted by the skill they are learnable at, which also shows beside each name.
 - **Detail pane.**
   - Recipes: name, `learn X · yellow Y, grey Z`, the created item's "Use:" text, notes, where it is learned from, reagents.
-  - Gatherables: where they are found (zones), the recipes that use them, notes.
+  - Gatherables and other items: their "Use:" text when they have one (edible fish), where they are found (zones), the recipes that use them, notes.
 - **Search.** Matches names, a recipe's reagents, and a gatherable's zones ("Mulgore" lists Peacebloom, "Barrens" on Fishing lists Deviate Fish).
 - **Known recipes and notes** are saved in `localStorage` (`hanto:v1`): one browser, one device. A "Known only" filter narrows the list.
 - **Not shown:** recipes learnable above skill 300 (the game doesn't support them yet) and Season of Discovery recipes.
