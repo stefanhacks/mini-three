@@ -515,7 +515,7 @@ const charm = (ctx: DrawContext, random: Random, x: number, y: number, size: num
   tusk(ctx, x + size * 0.55, y + size * 0.55, size * 0.5, -1, 0xe8dccc);
   shield(ctx, x + flip * size * 0.55, y - size * 0.45, size * 0.2, size * 0.32, tilt(0.6), 0x8a4aa8, 0xf2e8dc);
   shield(ctx, x - flip * size * 0.5, y - size * 0.25, size * 0.18, size * 0.28, tilt(0.6), 0xc8302a, 0xf2e8dc);
-  shield(ctx, x, y + size * 0.05, size * 0.3, size * 0.52, tilt(0.3), 0xc8302a, 0xf2e8dc, true);
+  shield(ctx, x, y + size * 0.05, size * 0.3, size * 0.52, tilt(0.04), 0xc8302a, 0xf2e8dc, true);
   bottle(ctx, x - flip * size * 0.85, y - size * 0.2 - 40, tilt(0.3), 0x3a5ad8);
   bottle(ctx, x + flip * size * 0.85, y - size * 0.1 - 40, tilt(0.3), 0xa060e0);
   bottle(ctx, x - flip * size * 0.3, y + size * 0.85 - 40, tilt(0.3), 0x40c060);
