@@ -2,7 +2,7 @@ import { Container, Graphics, Rectangle, type Ticker } from "pixi.js";
 import { cancelEdit, saveEdit, setKnownDraft, startEdit } from "../../app/notesEdit";
 import type { AppState, Store } from "../../app/store";
 import type { Profession, ProfessionKey, Recipe } from "../../data";
-import { PROFESSION_KEYS } from "../../data/keys";
+import { PROFESSION_KEYS, TAB_GROUPS } from "../../data/keys";
 import {
   PROFESSION_ICONS, itemOf, locationsOf, professionByKey, recipeKey, recipesByProfession,
 } from "../../data/model";
@@ -27,8 +27,13 @@ export const TABS_WIDTH = 48 + TAB_GLOW * 2 - 10;
 const TAB_SIZE = 48;
 const TAB_STEP = 54;
 const TABS_TOP = 52;
-/** Space between the primary tabs (Alchemy, Herbalism) and the secondary ones. */
+/** Space between tab groups (see TAB_GROUPS). On a phone the gaps grow to spread the tabs across the frame. */
 const TIER_GAP = 12;
+/** Narrowest group gap, so very narrow phones keep the tabs on one row. */
+const MIN_TIER_GAP = 6;
+const GROUP_GAPS = TAB_GROUPS.length - 1;
+/** Group index of each tab. */
+const GROUP_OF = new Map(TAB_GROUPS.flatMap((keys, group) => keys.map((key) => [key, group] as const)));
 const LIST_WIDTH = 290;
 const CONTENT_TOP = 74;
 const PORTRAIT = 72;
@@ -137,8 +142,8 @@ const mobileGeometry = (w: number, h: number): Geometry => {
   const inner = w - MOBILE_PAD * 2;
   // Short (landscape) frames get slightly smaller tabs: their height goes to the list. On one row, the tier gap
   // takes its share of the width.
-  const tabs = stripLayout(PROFESSION_KEYS.length, inner - TIER_GAP, h < SHORT_FRAME ? MIN_TAB_CELL : TAB_STEP,
-    MIN_TAB_CELL);
+  const tabs = stripLayout(PROFESSION_KEYS.length, inner - MIN_TIER_GAP * GROUP_GAPS,
+    h < SHORT_FRAME ? MIN_TAB_CELL : TAB_STEP, MIN_TAB_CELL);
   const strip = { x: MOBILE_PAD, y: MOBILE_CONTENT_TOP + 2, w: inner, h: tabs.rows * tabs.cell, perRow: tabs.perRow,
     cell: tabs.cell };
   const wide = w >= WIDE_FRAME;
@@ -322,26 +327,23 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     view.on("pointertap", () => tabPressed(key));
     return view;
   };
-  /** How many of the tabs, in order, are primary: the gap goes after them. */
-  const primaryCount = PROFESSION_KEYS.filter((key) => professionByKey.get(key)?.tier === "primary").length;
-
-  /** Desktop: the tabs down the window's right side, with a gap after the primary ones. */
+  /** Desktop: the tabs down the window's right side, with a gap between groups. */
   const renderTabs = (active: ProfessionKey) => {
     tabs.removeChildren().forEach((child) => child.destroy({ children: true }));
     const count = PROFESSION_KEYS.length;
-    const step = Math.min(TAB_STEP, Math.floor((h - TABS_TOP - 20 - TIER_GAP) / count));
+    const step = Math.min(TAB_STEP, Math.floor((h - TABS_TOP - 20 - TIER_GAP * GROUP_GAPS) / count));
     const scale = Math.min(1, step / TAB_STEP);
     PROFESSION_KEYS.forEach((key, i) => {
       const view = tab(key, active, 10);
       view.scale.set(scale);
       const isActive = key === active;
-      tabs.addChild(at(view, w - 10 + (isActive ? 2 : 0), TABS_TOP + i * step + (i >= primaryCount ? TIER_GAP : 0)));
+      tabs.addChild(at(view, w - 10 + (isActive ? 2 : 0), TABS_TOP + i * step + (GROUP_OF.get(key) ?? 0) * TIER_GAP));
     });
   };
 
   /**
-   * Mobile: square tabs under the title, centred. On one row, a gap follows the primary tabs; on two, the primary
-   * tabs take the first row and the secondary ones the second.
+   * Mobile: square tabs under the title, centred, a gap between groups. On one row the gaps grow (up to a tab's
+   * width) so the tabs spread across the frame. On two rows, the primary tabs take the first and the rest the second.
    */
   const renderStrip = (active: ProfessionKey) => {
     tabs.removeChildren().forEach((child) => child.destroy({ children: true }));
@@ -352,20 +354,26 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     const scale = strip.cell / TAB_STEP;
     const inset = (TAB_STEP - TAB_SIZE) / 2;
     const oneRow = strip.perRow >= PROFESSION_KEYS.length;
-    // Each row is centred in the frame: on one row the tier gap counts towards its width.
-    const rowWidth = (row: number) => oneRow ? PROFESSION_KEYS.length * strip.cell + TIER_GAP
-      : (row === 0 ? primaryCount : PROFESSION_KEYS.length - primaryCount) * strip.cell;
-    PROFESSION_KEYS.forEach((key, i) => {
-      const secondary = i >= primaryCount;
-      const column = oneRow || !secondary ? i : i - primaryCount;
-      const row = oneRow || !secondary ? 0 : 1;
-      const left = strip.x + Math.round((strip.w - rowWidth(row)) / 2);
-      const view = tab(key, active, 6);
-      view.scale.set(scale);
-      // The whole cell, gap included, takes the tap.
-      view.hitArea = new Rectangle(-inset, -inset, TAB_STEP, TAB_STEP);
-      tabs.addChild(at(view, left + (column * TAB_STEP + inset) * scale + (oneRow && secondary ? TIER_GAP : 0),
-        strip.y + (row * TAB_STEP + inset) * scale));
+    const rows = oneRow ? [TAB_GROUPS] : [TAB_GROUPS.slice(0, 1), TAB_GROUPS.slice(1)];
+    rows.forEach((groups, row) => {
+      const cells = groups.flat().length;
+      const gaps = groups.length - 1;
+      const gap = gaps === 0 ? 0 : oneRow
+        ? Math.min(strip.cell, Math.max(MIN_TIER_GAP, Math.floor((strip.w - cells * strip.cell) / gaps))) : TIER_GAP;
+      let x = strip.x + Math.round((strip.w - cells * strip.cell - gaps * gap) / 2);
+      groups.forEach((keys, group) => {
+        if (group > 0) {
+          x += gap;
+        }
+        keys.forEach((key) => {
+          const view = tab(key, active, 6);
+          view.scale.set(scale);
+          // The whole cell, gap included, takes the tap.
+          view.hitArea = new Rectangle(-inset, -inset, TAB_STEP, TAB_STEP);
+          tabs.addChild(at(view, x + inset * scale, strip.y + (row * TAB_STEP + inset) * scale));
+          x += strip.cell;
+        });
+      });
     });
   };
 
