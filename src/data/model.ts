@@ -33,7 +33,7 @@ export const locationsOf = (id: number): string[] => locations.items[String(id)]
 
 /**
  * What the detail pane shows after "Learned from:": "Trainer", or for a recipe item its sources, e.g.
- * "Recipe (H: Orgrimmar/Quest, A: Darnassus, Drop)", or "Recipe" when none is known.
+ * "Recipe (H: Orgrimmar / Quest, A: Darnassus, Drop)", or "Recipe" when none is known.
  */
 export const learnedFrom = (recipe: Recipe): string => {
   if (recipe.source === "trainer") {
@@ -41,7 +41,7 @@ export const learnedFrom = (recipe: Recipe): string => {
   }
   const source = locations.recipes[recipeKey(recipe)];
   const parts = source ? [
-    ...(["H", "A", "N"] as const).flatMap((side) => (source[side] ? [`${side}: ${source[side].join("/")}`] : [])),
+    ...(["H", "A", "N"] as const).flatMap((side) => (source[side] ? [`${side}: ${source[side].join(" / ")}`] : [])),
     ...(source.drop ? ["Drop"] : []),
   ] : [];
   return parts.length > 0 ? `Recipe (${parts.join(", ")})` : "Recipe";
