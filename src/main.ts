@@ -46,9 +46,13 @@ document.body.appendChild(app.canvas);
 const kit = createArtKit(app.renderer);
 const backdrop = createBackdrop(app.renderer);
 const store = createStore(fromSaved(loadSaved(new Set(professions.map((profession) => profession.key)))));
+const owner = createOwner(store);
+// Visitors always start with Known only on everywhere; the owner's browser keeps the last saved choice.
+if (!owner.remembered()) {
+  store.set({ knownOnly: new Set(professions.map((profession) => profession.key)) });
+}
 persist(store);
 void loadShared(store);
-const owner = createOwner(store);
 void owner.restore();
 const keyDialog = createKeyDialog(owner.login);
 /** `?zu` (any value) in the address shows the owner's lock. */

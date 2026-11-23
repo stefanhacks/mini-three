@@ -42,6 +42,8 @@ const FAILURES: Record<number, string> = {
 const UNREACHABLE = "Not saved: the server couldn't be reached.";
 
 export interface Owner {
+  /** A key from an earlier login is kept: this browser is the owner's, though `restore` may yet find it stale. */
+  remembered: () => boolean;
   /** Logs in again with the key an earlier login kept, once at startup, if the server still takes it. */
   restore: () => Promise<void>;
   /** Checks `key` with the server and, if it is the edit key, keeps it and allows editing. */
@@ -119,6 +121,7 @@ export const createOwner = (store: Store, fetchJson: typeof fetch = fetch, keys 
   };
 
   return {
+    remembered: () => keys.get() !== null,
     restore: async() => {
       const saved = keys.get();
       if (saved === null) {
