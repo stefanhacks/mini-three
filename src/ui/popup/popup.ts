@@ -2,7 +2,9 @@ import { Container, Graphics, Rectangle, type Ticker } from "pixi.js";
 import { cancelEdit, saveEdit, setKnownDraft, startEdit } from "../../app/notesEdit";
 import type { AppState, Store } from "../../app/store";
 import type { Profession, ProfessionKey, Recipe } from "../../data";
-import { PROFESSION_ICONS, itemOf, professionByKey, recipeKey, recipesByProfession } from "../../data/model";
+import {
+  PROFESSION_ICONS, PROFESSION_KEYS, itemOf, professionByKey, recipeKey, recipesByProfession,
+} from "../../data/model";
 import {
   type ArtKit, FRAME_TITLE_HEIGHT, PALETTE, SHADOW_SPREAD, TAB_GLOW, TEXT_STYLES, createNineSlice,
   createStoneOverlay,
@@ -12,7 +14,6 @@ import { SLIDE_MS, tweenAt } from "../motion";
 import { at, button, checkbox, iconSprite, itemSlot, label, piece, roundIcon } from "../widgets";
 import { NOTE_EDIT_MIN_HEIGHT, createDetailPane, noteEditMaxHeight, selectionKey } from "./detail";
 import { NOTES_TEXT_SIZE, NOTES_TEXT_SIZE_MOBILE, type NotesField } from "./notesField";
-import { createPicker } from "./picker";
 import { DESKTOP_ROWS, type RowMetrics, TOUCH_ROWS, buildRows } from "./rows";
 import { createScrollList } from "./scrollList";
 import { SEARCH_TEXT_SIZE, type SearchField } from "./searchField";
@@ -25,9 +26,8 @@ export const TABS_WIDTH = 48 + TAB_GLOW * 2 - 10;
 const TAB_SIZE = 48;
 const TAB_STEP = 54;
 const TABS_TOP = 52;
-/** The picker arrow above the desktop side tabs. */
-const ARROW_WIDTH = 40;
-const ARROW_HEIGHT = 28;
+/** Space between the primary tabs (Alchemy, Herbalism) and the secondary ones. */
+const TIER_GAP = 12;
 const LIST_WIDTH = 290;
 const CONTENT_TOP = 74;
 const PORTRAIT = 72;
@@ -70,8 +70,6 @@ export interface PopupCarry {
   profession: ProfessionKey | null;
   /** List position in rows, so it survives a change of row height. */
   listPosition: number;
-  /** The picker's unsaved toggles, when it was open. */
-  picked: ProfessionKey[] | null;
 }
 
 export interface Popup {
@@ -97,7 +95,6 @@ interface Geometry {
   search: Box;
   list: Box;
   detail: Box;
-  picker: Box;
   professions: Box;
   /** The mobile tab strip; desktop has side tabs instead. */
   strip: (Box & { perRow: number; cell: number }) | null;
@@ -124,7 +121,6 @@ const desktopGeometry = (): Geometry => {
     search: searchSlot({ x: 16, y: CONTENT_TOP + 32, w: LIST_WIDTH, h: contentHeight - 32 }, 22),
     list: { x: 16, y: CONTENT_TOP + 32, w: LIST_WIDTH, h: contentHeight - 32 },
     detail: { x: LIST_WIDTH + 24, y: CONTENT_TOP, w: w - LIST_WIDTH - 40, h: contentHeight },
-    picker: { x: 16, y: CONTENT_TOP, w: w - 32, h: contentHeight },
     professions: { x: w - 16 - 120, y: h - 34, w: 120, h: 24 },
     strip: null,
     rows: DESKTOP_ROWS,
@@ -134,13 +130,14 @@ const desktopGeometry = (): Geometry => {
 /**
  * The mobile frame, top to bottom: title strip (portrait, Back, title), the tab strip, the summary bar, a row with
  * Known only and Search (the bar joins that row on wide frames), and the list down to the bottom. Open search sits
- * in the list's first row slot. The detail pane and the picker cover everything under the title strip.
+ * in the list's first row slot. The detail pane covers everything under the title strip.
  */
-const mobileGeometry = (w: number, h: number, tabCount: number): Geometry => {
+const mobileGeometry = (w: number, h: number): Geometry => {
   const inner = w - MOBILE_PAD * 2;
-  // Short (landscape) frames get slightly smaller tabs: their height goes to the list.
-  // One extra cell: the picker arrow leads the strip.
-  const tabs = stripLayout(tabCount + 1, inner, h < SHORT_FRAME ? MIN_TAB_CELL : TAB_STEP, MIN_TAB_CELL);
+  // Short (landscape) frames get slightly smaller tabs: their height goes to the list. On one row, the tier gap
+  // takes its share of the width.
+  const tabs = stripLayout(PROFESSION_KEYS.length, inner - TIER_GAP, h < SHORT_FRAME ? MIN_TAB_CELL : TAB_STEP,
+    MIN_TAB_CELL);
   const strip = { x: MOBILE_PAD, y: MOBILE_CONTENT_TOP + 2, w: inner, h: tabs.rows * tabs.cell, perRow: tabs.perRow,
     cell: tabs.cell };
   const wide = w >= WIDE_FRAME;
@@ -161,7 +158,6 @@ const mobileGeometry = (w: number, h: number, tabCount: number): Geometry => {
     search: searchSlot({ x: MOBILE_PAD, y: listY, w: inner, h: h - MOBILE_PAD - listY }, MOBILE_BUTTON_HEIGHT),
     list: { x: MOBILE_PAD, y: listY, w: inner, h: h - MOBILE_PAD - listY },
     detail: cover,
-    picker: cover,
     professions: { x: buttonX, y: controlsY, w: 120, h: MOBILE_BUTTON_HEIGHT },
     strip,
     rows: TOUCH_ROWS,
@@ -169,8 +165,8 @@ const mobileGeometry = (w: number, h: number, tabCount: number): Geometry => {
 };
 
 /**
- * The profession window: frame, portrait, title, a summary bar, tabs for the chosen professions, and either the
- * picker or the list and detail panes. It renders from the store and writes user actions back to it.
+ * The profession window: frame, portrait, title, a summary bar, the five profession tabs (the two primary ones set
+ * apart), and the list and detail panes. It renders from the store and writes user actions back to it.
  *
  * Desktop is the fixed window with side tabs and the list and detail side by side. Mobile fills the screen: the
  * tabs become a strip under the title, the list takes the full width, and selecting an entry slides the detail
@@ -179,8 +175,7 @@ const mobileGeometry = (w: number, h: number, tabCount: number): Geometry => {
 export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: PopupCarry): Popup => {
   const { ticker, notesField, searchField, layout } = env;
   const mobile = layout.mode === "mobile";
-  const g = layout.mode === "mobile" ? mobileGeometry(layout.width, layout.height, store.get().chosen.length)
-    : desktopGeometry();
+  const g = layout.mode === "mobile" ? mobileGeometry(layout.width, layout.height) : desktopGeometry();
   const { w, h } = g;
   const win = new Container();
   win.addChild(at(piece(kit, "frameShadow", w + SHADOW_SPREAD * 2, h + SHADOW_SPREAD * 2), -SHADOW_SPREAD,
@@ -239,7 +234,7 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
       const { selection } = store.get();
       const key = selectionKey(selection);
       if (key) {
-        // The picker, Back and the back gesture clear `detailOpen` but keep the selection, which desktop still shows;
+        // Back and the back gesture clear `detailOpen` but keep the selection, which desktop still shows;
         // an edit needs the pane counted as open, or the leave guard cancels it at once.
         if (!store.get().detailOpen) {
           store.set({ detailOpen: true });
@@ -254,11 +249,6 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   });
   const knownOnlyBox = checkbox(kit, "Known only", TEXT_STYLES.row,
     (knownOnly) => store.set({ knownOnly }), store.get().knownOnly);
-  // Search closes when the picker opens: its list is not the one being filtered.
-  const openPicker = () => {
-    picker.open(store.get().chosen);
-    store.set({ view: "picker", detailOpen: false, search: null });
-  };
   // Search is a toggle: open, it reads "Close" and keeps the pressed look.
   const searchButton = button(kit, "Search", g.professions.w, () => {
     if (store.get().search === null) {
@@ -302,16 +292,6 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
   }
   win.addChild(browse);
 
-  const picker = createPicker(kit, g.picker.w, g.picker.h, (chosen) => {
-    const { active } = store.get();
-    const next = active && chosen.includes(active) ? active : chosen[0];
-    // A different profession means the open entry belongs to one no longer shown: clear it.
-    store.set(next === active
-      ? { chosen, active: next, view: "list" }
-      : { chosen, active: next, view: "list", selection: null, detailOpen: false });
-  }, ticker);
-  win.addChild(at(picker.view, g.picker.x, g.picker.y));
-
   if (!mobile) {
     win.addChild(at(searchButton.view, g.professions.x, g.professions.y));
   }
@@ -327,47 +307,42 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     back.view.addChild(chevron);
   }
 
-  /** The picker arrow: a tab-framed left chevron that opens the profession picker. */
-  const pickerArrow = (width: number, height: number): Container => {
-    const arrow = new Container();
-    arrow.addChild(createNineSlice(kit.pieces.tab, width, height));
-    const chevron = iconSprite(kit.icons.chevronRight, width / 2, height / 2, PALETTE.text.header, 1.25);
-    chevron.scale.x = -1.25;
-    arrow.addChild(chevron);
-    arrow.eventMode = "static";
-    arrow.cursor = "pointer";
-    arrow.hitArea = new Rectangle(0, 0, width, height);
-    arrow.on("pointertap", openPicker);
-    return arrow;
+  const tabPressed = (key: ProfessionKey) => store.set({ active: key, selection: null, detailOpen: false });
+
+  /** One profession tab: gold when active, bronze-rimmed when primary, grey otherwise. */
+  const tab = (key: ProfessionKey, active: ProfessionKey, iconX: number): Container => {
+    const primary = professionByKey.get(key)?.tier === "primary";
+    const view = new Container();
+    view.addChild(at(createNineSlice(kit.pieces[key === active ? "tabActive" : primary ? "tabPrimary" : "tab"],
+      TAB_SIZE + TAB_GLOW * 2, TAB_SIZE + TAB_GLOW * 2), -TAB_GLOW, -TAB_GLOW));
+    view.addChild(at(itemSlot(kit, PROFESSION_ICONS[key], 36), iconX, 6));
+    view.eventMode = "static";
+    view.cursor = "pointer";
+    view.on("pointertap", () => tabPressed(key));
+    return view;
   };
+  /** How many of the tabs, in order, are primary: the gap goes after them. */
+  const primaryCount = PROFESSION_KEYS.filter((key) => professionByKey.get(key)?.tier === "primary").length;
 
-  const tabPressed = (key: ProfessionKey) => store.set({ active: key, selection: null, detailOpen: false,
-    view: "list" });
-
-  const renderTabs = (chosen: ProfessionKey[], active: ProfessionKey | null, inPicker: boolean) => {
+  /** Desktop: the tabs down the window's right side, with a gap after the primary ones. */
+  const renderTabs = (active: ProfessionKey) => {
     tabs.removeChildren().forEach((child) => child.destroy({ children: true }));
-    if (!inPicker) {
-      // Above the first tab, left-pointing: back to the profession picker.
-      tabs.addChild(at(pickerArrow(ARROW_WIDTH, ARROW_HEIGHT), w - 10, TABS_TOP - ARROW_HEIGHT - 6));
-    }
-    const step = Math.min(TAB_STEP, Math.floor((h - TABS_TOP - 20) / Math.max(1, chosen.length)));
+    const count = PROFESSION_KEYS.length;
+    const step = Math.min(TAB_STEP, Math.floor((h - TABS_TOP - 20 - TIER_GAP) / count));
     const scale = Math.min(1, step / TAB_STEP);
-    chosen.forEach((key, i) => {
+    PROFESSION_KEYS.forEach((key, i) => {
+      const view = tab(key, active, 10);
+      view.scale.set(scale);
       const isActive = key === active;
-      const tab = new Container();
-      tab.addChild(at(createNineSlice(kit.pieces[isActive ? "tabActive" : "tab"], TAB_SIZE + TAB_GLOW * 2,
-        TAB_SIZE + TAB_GLOW * 2), -TAB_GLOW, -TAB_GLOW));
-      tab.addChild(at(itemSlot(kit, PROFESSION_ICONS[key], 36), 10, 6));
-      tab.scale.set(scale);
-      tab.eventMode = "static";
-      tab.cursor = "pointer";
-      tab.on("pointertap", () => tabPressed(key));
-      tabs.addChild(at(tab, w - 10 + (isActive ? 2 : 0), TABS_TOP + i * step));
+      tabs.addChild(at(view, w - 10 + (isActive ? 2 : 0), TABS_TOP + i * step + (i >= primaryCount ? TIER_GAP : 0)));
     });
   };
 
-  /** Mobile: the chosen professions as square tabs in one or two rows, left to right. */
-  const renderStrip = (chosen: ProfessionKey[], active: ProfessionKey | null, inPicker: boolean) => {
+  /**
+   * Mobile: square tabs under the title. On one row, a gap follows the primary tabs; on two, the primary tabs take
+   * the first row and the secondary ones the second.
+   */
+  const renderStrip = (active: ProfessionKey) => {
     tabs.removeChildren().forEach((child) => child.destroy({ children: true }));
     const strip = g.strip;
     if (!strip) {
@@ -375,25 +350,17 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     }
     const scale = strip.cell / TAB_STEP;
     const inset = (TAB_STEP - TAB_SIZE) / 2;
-    if (!inPicker) {
-      // The first cell, left of the tabs: back to the profession picker.
-      const size = TAB_SIZE * scale;
-      tabs.addChild(at(pickerArrow(size, size), strip.x + inset * scale, strip.y + inset * scale));
-    }
-    chosen.forEach((key, slot) => {
-      const i = slot + 1;
-      const tab = new Container();
-      tab.addChild(at(createNineSlice(kit.pieces[key === active ? "tabActive" : "tab"], TAB_SIZE + TAB_GLOW * 2,
-        TAB_SIZE + TAB_GLOW * 2), -TAB_GLOW, -TAB_GLOW));
-      tab.addChild(at(itemSlot(kit, PROFESSION_ICONS[key], 36), 6, 6));
-      tab.scale.set(scale);
-      tab.eventMode = "static";
-      tab.cursor = "pointer";
+    const oneRow = strip.perRow >= PROFESSION_KEYS.length;
+    PROFESSION_KEYS.forEach((key, i) => {
+      const secondary = i >= primaryCount;
+      const column = oneRow || !secondary ? i : i - primaryCount;
+      const row = oneRow || !secondary ? 0 : 1;
+      const view = tab(key, active, 6);
+      view.scale.set(scale);
       // The whole cell, gap included, takes the tap.
-      tab.hitArea = new Rectangle(-inset, -inset, TAB_STEP, TAB_STEP);
-      tab.on("pointertap", () => tabPressed(key));
-      tabs.addChild(at(tab, strip.x + ((i % strip.perRow) * TAB_STEP + inset) * scale,
-        strip.y + (Math.floor(i / strip.perRow) * TAB_STEP + inset) * scale));
+      view.hitArea = new Rectangle(-inset, -inset, TAB_STEP, TAB_STEP);
+      tabs.addChild(at(view, strip.x + (column * TAB_STEP + inset) * scale + (oneRow && secondary ? TIER_GAP : 0),
+        strip.y + (row * TAB_STEP + inset) * scale));
     });
   };
 
@@ -546,27 +513,20 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     return selectedKey;
   };
 
-  const renderContent = (inPicker: boolean) => {
+  const renderContent = () => {
     const state = store.get();
     if (mobile) {
-      renderStrip(state.chosen, state.active, inPicker);
+      renderStrip(state.active);
     } else {
-      renderTabs(state.chosen, state.active, inPicker);
+      renderTabs(state.active);
     }
-    picker.view.visible = inPicker;
-    browse.visible = !inPicker;
-    searchButton.view.visible = !inPicker;
-    const searching = state.search !== null && !inPicker;
+    const searching = state.search !== null;
     searchButton.setLatched(searching);
     searchButton.setCaption(searching ? "Close" : "Search");
 
-    const profession = state.active ? professionByKey.get(state.active) : undefined;
+    const profession = professionByKey.get(state.active);
     portrait.removeChildren().forEach((child) => child.destroy({ children: true }));
-    if (inPicker || !profession) {
-      title.text = "Professions";
-      barText.text = `${state.chosen.length} of 14 chosen`;
-      notesField.close();
-      searchField.close();
+    if (!profession) {
       return;
     }
     portrait.addChild(roundIcon(PROFESSION_ICONS[profession.key], PORTRAIT - 20));
@@ -602,12 +562,11 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
 
   const render = (animate: boolean) => {
     const state = store.get();
-    const inPicker = state.view === "picker" || !state.active;
-    renderContent(inPicker);
+    renderContent();
     if (!mobile) {
       return;
     }
-    const open = !inPicker && state.detailOpen && state.selection !== null;
+    const open = state.detailOpen && state.selection !== null;
     slideTo(open, animate);
     back.view.visible = open;
     // Keep the title clear of the Back button on narrow frames.
@@ -625,8 +584,8 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     && (Object.keys(state) as (keyof AppState)[]).every((field) =>
       field === "search" || state[field] === previous[field]);
   const unsubscribe = store.subscribe((state, previous) => {
-    const profession = state.active ? professionByKey.get(state.active) : undefined;
-    if (onlySearchTextChanged(state, previous) && profession && state.view === "list") {
+    const profession = professionByKey.get(state.active);
+    if (onlySearchTextChanged(state, previous) && profession) {
       renderList(profession, recipesByProfession.get(profession.key) ?? [], state);
     } else if (!onlyDraftChanged(state, previous)) {
       render(true);
@@ -634,9 +593,6 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
       showDetail();
     }
   });
-  if (store.get().view === "picker") {
-    picker.open(carry?.picked ?? store.get().chosen);
-  }
   render(false);
   if (carry && carry.profession === renderedProfession) {
     list.setPosition(carry.listPosition);
@@ -647,7 +603,6 @@ export const createPopup = (kit: ArtKit, store: Store, env: PopupEnv, carry?: Po
     carry: () => ({
       profession: renderedProfession,
       listPosition: list.getPosition(),
-      picked: store.get().view === "picker" ? picker.current() : null,
     }),
     destroy: () => {
       unsubscribe();

@@ -17,8 +17,7 @@ export const withNote = (notes: AppState["notes"], key: string, text: string): A
 
 /** Whether an edit of `key` may continue in `state`: the entry is still the one shown, in an open detail pane. */
 export const editStillValid = (state: AppState, selectedKey: string | null): boolean =>
-  state.editing !== null && state.editing.key === selectedKey && state.view === "list" && state.active !== null
-  && state.detailOpen;
+  state.editing !== null && state.editing.key === selectedKey && state.detailOpen;
 
 /** `known` with `key` added or removed. */
 export const withKnown = (known: AppState["known"], key: string, isKnown: boolean): AppState["known"] => {
@@ -71,7 +70,7 @@ export const cancelEdit = (store: Store) => {
 };
 
 /**
- * Leaving the entry being edited (another row, a tab, the picker, Back) cancels the edit. Subscribe it before any
+ * Leaving the entry being edited (another row, a tab, Back) cancels the edit. Subscribe it before any
  * view, so they only ever see a state whose edit is valid. `selectedKey` is the key of the state's selection.
  */
 export const cancelEditOnLeave = (store: Store, selectedKey: (state: AppState) => string | null) =>

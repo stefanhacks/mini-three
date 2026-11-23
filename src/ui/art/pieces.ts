@@ -173,7 +173,8 @@ const slotBorder: PieceSpec = {
   },
 };
 
-const sideTab = (active: boolean): PieceSpec => ({
+/** A side tab. Inactive primary-profession tabs get a bronze rim instead of the grey one; active tabs are gold. */
+const sideTab = (active: boolean, primary = false): PieceSpec => ({
   width: 48 + TAB_GLOW * 2,
   height: 48 + TAB_GLOW * 2,
   slice: even(TAB_GLOW + 12),
@@ -190,7 +191,8 @@ const sideTab = (active: boolean): PieceSpec => ({
     g.roundRect(x, x, s, s, 7).fill(ink);
     g.roundRect(x + 1, x + 1, s - 2, s - 2, 6).fill(active
       ? ctx.linear([[0, gold.light], [0.5, gold.base], [1, gold.dark]])
-      : ctx.linear([[0, 0x5e5850], [1, 0x2e2a26]]));
+      : primary ? ctx.linear([[0, bronze.light], [1, bronze.dark]])
+        : ctx.linear([[0, 0x5e5850], [1, 0x2e2a26]]));
     g.roundRect(x + 3, x + 3, s - 6, s - 6, 4).fill(ink);
     g.roundRect(x + 4, x + 4, s - 8, s - 8, 3).fill(active
       ? ctx.linear([[0, warm.raised], [1, warm.deep]])
@@ -354,6 +356,7 @@ export const PIECES = {
   slotBorder,
   tab: sideTab(false),
   tabActive: sideTab(true),
+  tabPrimary: sideTab(false, true),
   barTrack,
   barFill,
   button: button(red.light, red.dark, [gold.light, gold.dark], 0.18),

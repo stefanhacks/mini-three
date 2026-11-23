@@ -4,7 +4,6 @@ import { type SavedData, emptySaved, parse, serialize } from "./storage";
 const valid = new Set(["alchemy", "herbalism", "cooking"]);
 
 const saved: SavedData = {
-  chosen: ["alchemy", "herbalism"],
   active: "herbalism",
   collapsed: ["herbalism:gathered"],
   known: ["alchemy:101", "herbalism:7"],
@@ -30,7 +29,6 @@ describe("saved state", () => {
   it("drops unknown professions and wrong types but keeps the rest", () => {
     const raw = JSON.stringify({
       version: 1,
-      chosen: ["alchemy", "basketweaving", 5, "alchemy"],
       active: "basketweaving",
       collapsed: ["a", 3],
       known: ["alchemy:1", "basketweaving:2", "nonsense", 9],
@@ -41,12 +39,30 @@ describe("saved state", () => {
       },
     });
     expect(parse(raw, valid)).toEqual({
-      chosen: ["alchemy"],
       active: "alchemy",
       collapsed: ["a"],
       known: ["alchemy:1"],
       knownOnly: false,
       notes: { "alchemy:1": "ok", "item:5": "kept" },
+    });
+  });
+
+  it("reads saves from the profession picker days: drops the choice, keeps the five professions' notes", () => {
+    const raw = JSON.stringify({
+      version: 1,
+      chosen: ["mining", "herbalism"],
+      active: "mining",
+      collapsed: [],
+      known: ["mining:2657", "herbalism:7"],
+      knownOnly: false,
+      notes: { "mining:2657": "smelt", "herbalism:7": "keep", "item:2770": "kept too" },
+    });
+    expect(parse(raw, valid)).toEqual({
+      active: "alchemy",
+      collapsed: [],
+      known: ["herbalism:7"],
+      knownOnly: false,
+      notes: { "herbalism:7": "keep", "item:2770": "kept too" },
     });
   });
 

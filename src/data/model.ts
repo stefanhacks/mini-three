@@ -2,7 +2,7 @@ import {
   type Item, type Profession, type ProfessionKey, type Recipe, items, locations, professions, recipes,
 } from ".";
 
-/** Icon basenames (zamimg) for the profession tabs, picker and portrait. */
+/** Icon basenames (zamimg) for the profession tabs and portrait. */
 export const PROFESSION_ICONS: Record<ProfessionKey, string> = {
   alchemy: "trade_alchemy",
   herbalism: "spell_nature_naturetouchgrow",
@@ -11,11 +11,8 @@ export const PROFESSION_ICONS: Record<ProfessionKey, string> = {
   "first-aid": "spell_holy_sealofsacrifice",
 };
 
-/** Picker groups, in display order. The picker goes away with the fixed tabs. */
-export const PROFESSION_GROUPS: { title: string; keys: ProfessionKey[] }[] = [
-  { title: "Primary", keys: ["alchemy", "herbalism"] },
-  { title: "Secondary", keys: ["cooking", "fishing", "first-aid"] },
-];
+/** Every profession, in tab order (the data's order). */
+export const PROFESSION_KEYS: ProfessionKey[] = professions.map((profession) => profession.key);
 
 export const professionByKey = new Map<ProfessionKey, Profession>(professions.map((p) => [p.key, p]));
 
