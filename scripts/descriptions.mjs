@@ -176,6 +176,65 @@ export const resolveDescription = (spellId, spells) => {
     return effect.radius > 0 ? { value: formatNumber(effect.radius), number: effect.radius, end } : null;
   };
 
+  // Each reader below handles one token starting at `pos` (just after its `$`) and returns { out, end }.
+
+  // $@spelldesc12345: another spell's description, resolved in that spell's context.
+  const readEmbed = (match, pos, depth) => {
+    const id = Number(match[1]);
+    const description = spells.description(id);
+    if (description === undefined || depth >= MAX_DEPTH) {
+      unresolved.push(`$${match[0]}`);
+      return { out: `$${match[0]}`, end: pos + match[0].length };
+    }
+    return { out: resolve(description, id, depth + 1), end: pos + match[0].length };
+  };
+
+  // $?cond[a]?cond[b][else]: skip every condition and its branch, keep the last bracket (else) if any.
+  const readConditional = (text, pos, ownId, depth) => {
+    let at = pos + 1;
+    for (;;) {
+      const open = text.indexOf("[", at);
+      if (open === -1) {
+        throw new Error(`conditional without a branch in ${text}`);
+      }
+      const close = closeBracket(text, open);
+      if (text[close] === "?") {
+        at = close + 1;
+      } else if (text[close] === "[") {
+        const end = closeBracket(text, close);
+        return { out: resolve(text.slice(close + 1, end - 1), ownId, depth), end };
+      } else {
+        return { out: "", end: close };
+      }
+    }
+  };
+
+  // ${ arithmetic }, whose $ values are read as numbers. Null when it is not closed.
+  const readExpression = (text, pos, ownId) => {
+    const end = text.indexOf("}", pos);
+    if (end === -1) {
+      return null;
+    }
+    const expression = text.slice(pos + 1, end);
+    let failed = false;
+    const numeric = expression.split("$").map((part, i) => {
+      if (i === 0) {
+        return part;
+      }
+      const value = readValue(part, 0, ownId);
+      if (!value) {
+        failed = true;
+        return part;
+      }
+      return `${value.number}${part.slice(value.end)}`;
+    }).join("");
+    if (failed) {
+      unresolved.push(`\${${expression}}`);
+      return { out: `\${${expression}}`, end: end + 1 };
+    }
+    return { out: String(Math.floor(evaluate(numeric))), end: end + 1 };
+  };
+
   const resolve = (text, ownId, depth) => {
     let out = "";
     let pos = 0;
@@ -189,80 +248,27 @@ export const resolveDescription = (spellId, spells) => {
       pos = next + 1;
       const rest = text.slice(pos);
       const embed = /^@spelldesc(\d+)/.exec(rest);
-      if (embed) {
-        const id = Number(embed[1]);
-        const description = spells.description(id);
-        if (description === undefined || depth >= MAX_DEPTH) {
-          unresolved.push(`$${embed[0]}`);
-          out += `$${embed[0]}`;
-        } else {
-          out += resolve(description, id, depth + 1);
-        }
-        pos += embed[0].length;
-        continue;
-      }
-      if (rest.startsWith("?")) {
-        // $?cond[a]?cond[b][else]: skip every condition and its branch, keep the last bracket (else) if any.
-        let at = pos + 1;
-        let chosen = "";
-        for (;;) {
-          const open = text.indexOf("[", at);
-          if (open === -1) {
-            throw new Error(`conditional without a branch in ${text}`);
-          }
-          const close = closeBracket(text, open);
-          if (text[close] === "?") {
-            at = close + 1;
-          } else if (text[close] === "[") {
-            const end = closeBracket(text, close);
-            chosen = text.slice(close + 1, end - 1);
-            pos = end;
-            break;
-          } else {
-            pos = close;
-            break;
-          }
-        }
-        out += resolve(chosen, ownId, depth);
-        continue;
-      }
-      if (rest.startsWith("{")) {
-        const end = text.indexOf("}", pos);
-        if (end === -1) {
-          unresolved.push(text.slice(pos - 1));
-          out += text.slice(pos - 1);
-          break;
-        }
-        const expression = text.slice(pos + 1, end);
-        let failed = false;
-        const numeric = expression.replace(/\$/g, "\u0000").split("\u0000").map((part, i) => {
-          if (i === 0) {
-            return part;
-          }
-          const value = readValue(part, 0, ownId);
-          if (!value) {
-            failed = true;
-            return part;
-          }
-          return `${value.number}${part.slice(value.end)}`;
-        }).join("");
-        if (failed) {
-          unresolved.push(`\${${expression}}`);
-          out += `\${${expression}}`;
-        } else {
-          out += String(Math.floor(evaluate(numeric)));
-        }
-        pos = end + 1;
-        continue;
-      }
-      const value = readValue(text, pos, ownId);
-      if (value) {
-        out += value.value;
-        pos = value.end;
+      const token = embed ? readEmbed(embed, pos, depth)
+        : rest.startsWith("?") ? readConditional(text, pos, ownId, depth)
+          : rest.startsWith("{") ? readExpression(text, pos, ownId)
+            : null;
+      if (token) {
+        out += token.out;
+        pos = token.end;
+      } else if (rest.startsWith("{")) {
+        // An unclosed ${: report the rest of the text as is.
+        unresolved.push(text.slice(pos - 1));
+        out += text.slice(pos - 1);
+        break;
       } else {
-        const token = /^\S*/.exec(rest)[0] || "$";
-        unresolved.push(`$${token}`);
-        out += "$";
+        const value = readValue(text, pos, ownId);
+        if (value) {
+          out += value.value;
+          pos = value.end;
+        } else {
+          unresolved.push(`$${/^\S*/.exec(rest)[0] || "$"}`);
+          out += "$";
+        }
       }
     }
     return out;

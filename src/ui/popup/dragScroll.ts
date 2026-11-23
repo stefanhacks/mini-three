@@ -1,4 +1,4 @@
-import type { Container, FederatedPointerEvent, Ticker } from "pixi.js";
+import { Container, type FederatedPointerEvent, type FederatedWheelEvent, Rectangle, type Ticker } from "pixi.js";
 import { MIN_FLING_SPEED, type MotionSample, flingStep, releaseVelocity } from "../motion";
 
 export interface DragScroll {
@@ -23,6 +23,8 @@ const MOUSE_THRESHOLD = 4;
 // Fingers wobble more than a mouse: a tap that moves a few pixels is still a tap.
 const TOUCH_THRESHOLD = 8;
 const MAX_SAMPLES = 20;
+/** Pixels per wheel line, for wheels that report lines (`deltaMode` 1) instead of pixels. */
+const WHEEL_LINE = 20;
 
 /**
  * Drag-to-scroll with momentum for `view`. A release while moving flings the content, slowing down exponentially
@@ -116,4 +118,25 @@ export const createDragScroll = (view: Container, ticker: Ticker, scroll: Scroll
     dragged: () => dragged,
     stop,
   };
+};
+
+/**
+ * Scroll input for a pane: the wheel anywhere on `view`, and drags that start on the pane's empty `area` (a hit box
+ * added under `content`) or on `content` itself. `scrollBy` moves the offset by a delta in px.
+ */
+export const attachScrollInput = (
+  view: Container, content: Container, area: Rectangle, drag: DragScroll, scrollBy: (delta: number) => void,
+) => {
+  const hitBox = new Container();
+  hitBox.hitArea = area;
+  hitBox.eventMode = "static";
+  // Above the pane's background and stone overlay, under its content.
+  view.addChildAt(hitBox, 2);
+  view.eventMode = "static";
+  view.on("wheel", (event: FederatedWheelEvent) => {
+    drag.stop();
+    scrollBy(event.deltaMode === 1 ? event.deltaY * WHEEL_LINE : event.deltaY);
+  });
+  content.eventMode = "static";
+  [hitBox, content].forEach((target) => target.on("pointerdown", (event: FederatedPointerEvent) => drag.press(event)));
 };

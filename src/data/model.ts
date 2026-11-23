@@ -1,3 +1,4 @@
+import { appendTo, groupBy } from "../collections";
 import {
   type Item, type Profession, type ProfessionKey, type Recipe, items, locations, professions, recipes,
 } from ".";
@@ -13,20 +14,11 @@ export const PROFESSION_ICONS: Record<ProfessionKey, string> = {
 
 export const professionByKey = new Map<ProfessionKey, Profession>(professions.map((p) => [p.key, p]));
 
-export const recipesByProfession = new Map<ProfessionKey, Recipe[]>();
+export const recipesByProfession = groupBy(recipes, (recipe) => recipe.profession);
+
 /** Item id to the recipes that use it as a reagent. */
 export const recipesUsingItem = new Map<number, Recipe[]>();
-
-recipes.forEach((recipe) => {
-  const list = recipesByProfession.get(recipe.profession) ?? [];
-  list.push(recipe);
-  recipesByProfession.set(recipe.profession, list);
-  recipe.reagents.forEach(({ item }) => {
-    const users = recipesUsingItem.get(item) ?? [];
-    users.push(recipe);
-    recipesUsingItem.set(item, users);
-  });
-});
+recipes.forEach((recipe) => recipe.reagents.forEach(({ item }) => appendTo(recipesUsingItem, item, recipe)));
 
 /** Profession that lists an item as a gatherable, if any (first match). */
 export const gathererOf = (itemId: number): Profession | undefined =>

@@ -1,5 +1,5 @@
 import { DISPLAY_FONT, PALETTE } from "./art";
-import { font, hex } from "./popup/notesField";
+import { font, hex } from "./dom";
 
 /**
  * A full-screen DOM notice asking to turn the phone upright, over the canvas and its DOM fields. It starts hidden;

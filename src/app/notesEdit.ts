@@ -1,3 +1,4 @@
+import { toggled } from "../collections";
 import { MAX_NOTE_LENGTH } from "./storage";
 import type { AppState, Store } from "./store";
 
@@ -18,17 +19,6 @@ export const withNote = (notes: AppState["notes"], key: string, text: string): A
 /** Whether an edit of `key` may continue in `state`: the entry is still the one shown, in an open detail pane. */
 export const editStillValid = (state: AppState, selectedKey: string | null): boolean =>
   state.editing !== null && state.editing.key === selectedKey && state.detailOpen;
-
-/** `known` with `key` added or removed. */
-export const withKnown = (known: AppState["known"], key: string, isKnown: boolean): AppState["known"] => {
-  const next = new Set(known);
-  if (isKnown) {
-    next.add(key);
-  } else {
-    next.delete(key);
-  }
-  return next;
-};
 
 /** Starts editing `key`. `isRecipe` adds the known flag to the draft, since only recipes have one. */
 export const startEdit = (store: Store, key: string, isRecipe: boolean) => {
@@ -57,7 +47,7 @@ export const saveEdit = (store: Store) => {
     store.set({
       notes: withNote(notes, editing.key, noteFromDraft(editing.draft)),
       ...(editing.known !== undefined && editing.known !== known.has(editing.key)
-        ? { known: withKnown(known, editing.key, editing.known) } : {}),
+        ? { known: toggled(known, editing.key, editing.known) } : {}),
       editing: null,
     });
   }

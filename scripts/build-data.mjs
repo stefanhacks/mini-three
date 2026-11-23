@@ -10,7 +10,7 @@ import { pipeline } from "node:stream/promises";
 import { gunzipSync } from "node:zlib";
 import { resolveDescription } from "./descriptions.mjs";
 import {
-  SPELL_EFFECT_LEARN_SPELL, classifyGatherables, locateItems, parseCsv, readQuestieObjects,
+  SPELL_EFFECT_LEARN_SPELL, addTo, appendTo, classifyGatherables, locateItems, parseCsv, readQuestieObjects,
   spellsTaughtByItems, toInt, zoneNamesByCount,
 } from "./data-lib.mjs";
 import {
@@ -63,7 +63,7 @@ const PROFESSION_CATEGORIES = new Set([9, 11]);
 const TABLES = [
   "SkillLine", "SkillLineAbility", "TradeSkillCategory", "SpellName", "SpellReagents", "SpellEffect",
   "Item", "ItemSparse", "ItemModifiedAppearance", "ItemAppearance", "ItemEffect", "ItemXItemEffect",
-  "Spell", "SpellMisc", "SpellDuration", "SpellRadius", "SpellAuraOptions",
+  "Spell", "SpellMisc", "SpellDuration", "SpellRadius", "SpellAuraOptions", "AreaTable",
 ];
 
 const SPELL_EFFECT_CREATE_ITEM = 24;
@@ -224,55 +224,51 @@ const fetchOk = async (url) => {
 
 const exists = (file) => readFile(file).then(() => true, () => false);
 
-const downloadTable = async (table, build = BUILD) => {
-  const file = path.join(CACHE_DIR, `${build === BUILD ? "wowf" : "era"}-${build}-hotfixes`, `${table}.csv`);
+// Downloads `file` into the cache unless it is there: `write(partial)` writes it to a temporary path, renamed once
+// complete, so an interrupted download never leaves a truncated file that later runs trust.
+const cached = async (file, what, write) => {
   if (!(await exists(file))) {
-    log(`downloading ${table} (${build})`);
-    const response = await fetchOk(`https://wago.tools/db2/${table}/csv?build=${build}&useHotfixes=true`);
+    log(`downloading ${what}`);
     await mkdir(path.dirname(file), { recursive: true });
-    // Write then rename, so an interrupted download never leaves a truncated CSV that later runs trust.
-    await writeFile(`${file}.partial`, await response.text());
+    await write(`${file}.partial`);
     await rename(`${file}.partial`, file);
   }
+  return file;
+};
+
+const cachedText = (file, what, url) => cached(file, what, async (partial) => {
+  await writeFile(partial, await (await fetchOk(url)).text());
+});
+
+const downloadTable = async (table, build = BUILD) => {
+  const file = path.join(CACHE_DIR, `${build === BUILD ? "wowf" : "era"}-${build}-hotfixes`, `${table}.csv`);
+  await cachedText(file, `${table} (${build})`, `https://wago.tools/db2/${table}/csv?build=${build}&useHotfixes=true`);
   return parseCsv(await readFile(file, "utf8"));
 };
 
 const downloadQuestieFile = async (file) => {
   const target = path.join(CACHE_DIR, `questiedb-${QUESTIE_COMMIT}`, path.basename(file));
-  if (!(await exists(target))) {
-    log(`downloading QuestieDB ${file}`);
-    const response = await fetchOk(`https://raw.githubusercontent.com/Questie/QuestieDB/${QUESTIE_COMMIT}/${file}`);
-    await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(`${target}.partial`, await response.text());
-    await rename(`${target}.partial`, target);
-  }
+  await cachedText(target, `QuestieDB ${file}`,
+    `https://raw.githubusercontent.com/Questie/QuestieDB/${QUESTIE_COMMIT}/${file}`);
   return readFile(target, "utf8");
 };
 
 // The CMaNGOS Classic world database dump, as SQL text. The 13 MB gzip is cached; unzipping takes about a second.
 const loadClassicDb = async () => {
   const file = path.join(CACHE_DIR, `classicdb-${CLASSICDB_COMMIT}.sql.gz`);
-  if (!(await exists(file))) {
-    log("downloading the CMaNGOS Classic world database (13 MB, one time)");
+  await cached(file, "the CMaNGOS Classic world database (13 MB, one time)", async (partial) => {
     const url = `https://raw.githubusercontent.com/cmangos/classic-db/${CLASSICDB_COMMIT}/${CLASSICDB_FILE}`;
-    const response = await fetchOk(url);
-    await mkdir(CACHE_DIR, { recursive: true });
-    await writeFile(`${file}.partial`, Buffer.from(await response.arrayBuffer()));
-    await rename(`${file}.partial`, file);
-  }
+    await writeFile(partial, Buffer.from(await (await fetchOk(url)).arrayBuffer()));
+  });
   return gunzipSync(await readFile(file)).toString("utf8");
 };
 
 // Reads the community listfile and keeps only interface/icons/<name>.blp rows (id;path), cached trimmed.
 const loadIconNames = async () => {
   const file = path.join(CACHE_DIR, `icons-${LISTFILE_TAG}.csv`);
-  if (!(await exists(file))) {
+  await cached(file, "listfile (large, one time)", async (partial) => {
     const url = `https://github.com/wowdev/wow-listfile/releases/download/${LISTFILE_TAG}/community-listfile.csv`;
-    log("downloading listfile (large, one time)");
     const response = await fetchOk(url);
-    await mkdir(CACHE_DIR, { recursive: true });
-    const partial = `${file}.partial`;
-    const out = createWriteStream(partial);
     const lines = readline.createInterface({ input: Readable.fromWeb(response.body), crlfDelay: Infinity });
     const kept = (async function* () {
       for await (const line of lines) {
@@ -281,9 +277,8 @@ const loadIconNames = async () => {
         }
       }
     })();
-    await pipeline(Readable.from(kept), out);
-    await rename(partial, file);
-  }
+    await pipeline(Readable.from(kept), createWriteStream(partial));
+  });
   const icons = new Map();
   for (const line of (await readFile(file, "utf8")).split("\n")) {
     // Names with spaces or other odd characters are listfile typos that 404 on zamimg: skipped, not guessed.
@@ -296,71 +291,59 @@ const loadIconNames = async () => {
 };
 
 const byId = (rows) => new Map(rows.map((row) => [row.ID, row]));
+// Rows of the base difficulty: the ones the game uses outside dungeons.
+const baseRows = (rows) => rows.filter((row) => toInt(row.DifficultyID) === 0);
+const recipeKeyOf = (recipe) => `${recipe.profession}:${recipe.id}`;
+// Item ids a list of recipes creates or uses, in recipe order.
+const referencedItems = (recipes) => new Set(recipes.flatMap((recipe) => [
+  ...(recipe.item ? [recipe.item] : []), ...recipe.reagents.map((reagent) => reagent.item),
+]));
+const listOrNone = (values, separator = ", ") => values.join(separator) || "none";
 
-const main = async () => {
-  const tables = await Promise.all(TABLES.map((table) => downloadTable(table)));
-  const [skillLines, abilities, tradeCategories, spellNames, reagentRows, effects, itemRows, sparseRows,
-    appearanceLinks, appearances, itemEffects, itemEffectLinks, spellRows, spellMiscRows, durationRows, radiusRows,
-    auraOptionRows] = tables;
-  const [icons, classicDb, eraEffects] = await Promise.all([
-    loadIconNames(), loadClassicDb(), downloadTable("SpellEffect", ERA_BUILD),
-  ]);
-
-  // Professions: top-level skill lines (not the per-tier children) with a profession name and category.
-  const professions = PROFESSIONS.map(({ key, name, tier }) => {
-    const matches = skillLines.filter((line) => line.DisplayName_lang === name
-      && toInt(line.ParentSkillLineID) === 0 && PROFESSION_CATEGORIES.has(toInt(line.CategoryID)));
-    if (matches.length !== 1) {
-      throw new Error(`expected one top-level skill line named ${name}, found ${matches.length}`);
-    }
-    return { key, name, tier, skillLine: toInt(matches[0].ID) };
-  });
-  const professionBySkillLine = new Map(professions.map((profession) => [profession.skillLine, profession]));
-
-  const spellNameById = new Map(spellNames.map((row) => [row.ID, row.Name_lang]));
-  const reagentsBySpell = new Map(reagentRows.map((row) => [row.SpellID, row]));
-  const createdBySpell = new Map();
-  for (const effect of effects) {
-    if (toInt(effect.Effect) === SPELL_EFFECT_CREATE_ITEM && toInt(effect.EffectItemType) > 0
-      && !createdBySpell.has(effect.SpellID)) {
-      createdBySpell.set(effect.SpellID, effect);
-    }
+// Professions: top-level skill lines (not the per-tier children) with a profession name and category.
+const readProfessions = (skillLines) => PROFESSIONS.map(({ key, name, tier }) => {
+  const matches = skillLines.filter((line) => line.DisplayName_lang === name
+    && toInt(line.ParentSkillLineID) === 0 && PROFESSION_CATEGORIES.has(toInt(line.CategoryID)));
+  if (matches.length !== 1) {
+    throw new Error(`expected one top-level skill line named ${name}, found ${matches.length}`);
   }
-  const categoryById = byId(tradeCategories);
+  return { key, name, tier, skillLine: toInt(matches[0].ID) };
+});
 
-  // Recipes some item teaches (patterns, plans, formulas...). The others have no item: a trainer teaches them, or
-  // they come with the profession. Trainer lists live on the server, so the client tables can't say which trainer.
+// Spell id to the spells its learn-spell effects teach.
+const learnEffects = (effects) => {
   const learns = new Map();
   for (const effect of effects.filter((row) => toInt(row.Effect) === SPELL_EFFECT_LEARN_SPELL)) {
-    const spell = toInt(effect.SpellID);
-    learns.set(spell, [...(learns.get(spell) ?? []), toInt(effect.EffectTriggerSpell)]);
+    appendTo(learns, toInt(effect.SpellID), toInt(effect.EffectTriggerSpell));
   }
-  const itemEffectById = new Map(itemEffects.map((row) => [
+  return learns;
+};
+
+/**
+ * What teaches each recipe, and at which skill. `taughtByItem`: the recipe items (patterns, plans, formulas...) of
+ * each spell; recipes without one are taught by a trainer or come with the profession (trainer lists live on the
+ * server, so the client tables can't say which trainer). `levelOf(ability, key)`: the lowest skill a recipe item or a
+ * trainer asks, or 1 for recipes that come with the profession, or undefined; `origin` records where each came from.
+ * The client tables say 1 for nearly everything (SkillLineAbility.MinSkillLineRank), so they aren't used.
+ */
+const createLearning = (tables, classicDb, eraEffects, professions) => {
+  const itemEffectById = new Map(tables.ItemEffect.map((row) => [
     toInt(row.ID), { spell: toInt(row.SpellID), trigger: toInt(row.TriggerType) },
   ]));
   const taughtByItem = spellsTaughtByItems(
     itemEffectById,
-    itemEffectLinks.map((row) => ({ effect: toInt(row.ItemEffectID), item: toInt(row.ItemID) })),
-    learns,
+    tables.ItemXItemEffect.map((row) => ({ effect: toInt(row.ItemEffectID), item: toInt(row.ItemID) })),
+    learnEffects(tables.SpellEffect),
   );
-
-  // Learnable level: the lowest skill a recipe item or a trainer asks, or 1 for recipes that come with the profession.
-  // The client tables say 1 for nearly everything (SkillLineAbility.MinSkillLineRank), so they aren't used.
-  const requiredRankByItem = new Map(sparseRows.map((row) => [toInt(row.ID), toInt(row.RequiredSkillRank)]));
-  const eraLearns = new Map(learns);
-  for (const effect of eraEffects.filter((row) => toInt(row.Effect) === SPELL_EFFECT_LEARN_SPELL)) {
-    const spell = toInt(effect.SpellID);
-    eraLearns.set(spell, [...(eraLearns.get(spell) ?? []), toInt(effect.EffectTriggerSpell)]);
-  }
+  const requiredRankByItem = new Map(tables.ItemSparse.map((row) => [toInt(row.ID), toInt(row.RequiredSkillRank)]));
   const trainerLevels = trainerSkillLevels(
     [...readSqlTable(classicDb, "npc_trainer"), ...readSqlTable(classicDb, "npc_trainer_template")],
-    eraLearns,
+    learnEffects([...tables.SpellEffect, ...eraEffects]),
     new Set(professions.map((profession) => profession.skillLine)),
   );
-  // Where each recipe's level came from, by `<profession>:<spell>`, for the report.
-  const learnOrigin = new Map();
+  const origin = new Map();
   const usedByHand = new Set();
-  const learnLevel = (ability, key) => {
+  const levelOf = (ability, key) => {
     const spell = toInt(ability.Spell);
     // Item and trainer levels first. "Comes with the profession" (AcquireMethod 1) only says 1 when nothing else does.
     const candidates = [
@@ -382,32 +365,55 @@ const main = async () => {
     if (candidates.length === 0) {
       return undefined;
     }
-    learnOrigin.set(key, candidates[0][0]);
+    origin.set(key, candidates[0][0]);
     return candidates[0][1];
   };
+  const checkByHand = () => {
+    const unused = Object.keys(LEARN_BY_HAND).filter((key) => !usedByHand.has(key));
+    if (unused.length > 0) {
+      throw new Error(`LEARN_BY_HAND names no recipe: ${unused.join(", ")}. Fix or remove the entries.`);
+    }
+  };
+  return { itemEffectById, taughtByItem, levelOf, origin, checkByHand };
+};
 
-  // Recipes: one per (profession, spell) ability row that has reagents or creates an item.
+// The reagents of an ability's spell, from its SpellReagents row (absent for spells without reagents).
+const readReagents = (spell, row, warnings) => {
+  const reagents = [];
+  for (let i = 0; i < MAX_REAGENTS && row; i += 1) {
+    const item = toInt(row[`Reagent_${i}`]);
+    if (item > 0) {
+      const count = toInt(row[`ReagentCount_${i}`]);
+      if (count < 1) {
+        warnings.push(`spell ${spell} reagent ${item} has count ${count}, kept as 1`);
+      }
+      reagents.push({ item, count: Math.max(1, count) });
+    }
+  }
+  return reagents;
+};
+
+// Recipes: one per (profession, spell) ability row that has reagents or creates an item.
+const buildRecipes = (tables, professions, learning, warnings) => {
+  const professionBySkillLine = new Map(professions.map((profession) => [profession.skillLine, profession]));
+  const spellNameById = new Map(tables.SpellName.map((row) => [row.ID, row.Name_lang]));
+  const reagentsBySpell = new Map(tables.SpellReagents.map((row) => [row.SpellID, row]));
+  const createdBySpell = new Map();
+  for (const effect of tables.SpellEffect) {
+    if (toInt(effect.Effect) === SPELL_EFFECT_CREATE_ITEM && toInt(effect.EffectItemType) > 0
+      && !createdBySpell.has(effect.SpellID)) {
+      createdBySpell.set(effect.SpellID, effect);
+    }
+  }
   const recipes = [];
   const seen = new Set();
-  const warnings = [];
-  for (const ability of abilities) {
+  for (const ability of tables.SkillLineAbility) {
     const profession = professionBySkillLine.get(toInt(ability.SkillLine));
     if (!profession) {
       continue;
     }
-    const reagentRow = reagentsBySpell.get(ability.Spell);
+    const reagents = readReagents(ability.Spell, reagentsBySpell.get(ability.Spell), warnings);
     const created = createdBySpell.get(ability.Spell);
-    const reagents = [];
-    for (let i = 0; i < MAX_REAGENTS && reagentRow; i += 1) {
-      const item = toInt(reagentRow[`Reagent_${i}`]);
-      if (item > 0) {
-        const count = toInt(reagentRow[`ReagentCount_${i}`]);
-        if (count < 1) {
-          warnings.push(`spell ${ability.Spell} reagent ${item} has count ${count}, kept as 1`);
-        }
-        reagents.push({ item, count: Math.max(1, count) });
-      }
-    }
     const key = `${profession.key}:${ability.Spell}`;
     if ((reagents.length === 0 && !created) || seen.has(key)) {
       continue;
@@ -420,9 +426,9 @@ const main = async () => {
       category: toInt(ability.TradeSkillCategoryID),
       trivialLow: toInt(ability.TrivialSkillLineRankLow),
       trivialHigh: toInt(ability.TrivialSkillLineRankHigh),
-      source: taughtByItem.has(toInt(ability.Spell)) ? "item" : "trainer",
+      source: learning.taughtByItem.has(toInt(ability.Spell)) ? "item" : "trainer",
     };
-    const learn = learnLevel(ability, key);
+    const learn = learning.levelOf(ability, key);
     if (learn !== undefined) {
       recipe.learn = learn;
     }
@@ -437,37 +443,35 @@ const main = async () => {
     recipe.reagents = reagents;
     recipes.push(recipe);
   }
-  recipes.sort((a, b) => a.id - b.id || a.profession.localeCompare(b.profession));
-  const unusedByHand = Object.keys(LEARN_BY_HAND).filter((key) => !usedByHand.has(key));
-  if (unusedByHand.length > 0) {
-    throw new Error(`LEARN_BY_HAND names no recipe: ${unusedByHand.join(", ")}. Fix or remove the entries.`);
-  }
+  learning.checkByHand();
+  return recipes.sort((a, b) => a.id - b.id || a.profession.localeCompare(b.profession));
+};
 
-  const referencedItems = (list) => new Set(list.flatMap((recipe) => [
-    ...(recipe.item ? [recipe.item] : []), ...recipe.reagents.map((reagent) => reagent.item),
-  ]));
+// Drops recipes with no category, in an excluded category or learnable above MAX_LEARN_SKILL, and reports them.
+const dropExcluded = (recipes, categoryById) => {
   const excluded = new Set(EXCLUDED_CATEGORIES.map((name) => name.toLowerCase()));
+  const tooHigh = (recipe) => (recipe.learn ?? 0) > MAX_LEARN_SKILL;
   const isExcluded = (recipe) => {
     const name = categoryById.get(String(recipe.category))?.Name_lang ?? "";
     // Category 0: an ability the profession window doesn't list (the old Basic Campfire; Camping has the new one).
-    return recipe.category === 0 || excluded.has(name.toLowerCase()) || (recipe.learn ?? 0) > MAX_LEARN_SKILL;
+    return recipe.category === 0 || excluded.has(name.toLowerCase()) || tooHigh(recipe);
   };
-  const tooHigh = recipes.filter((recipe) => (recipe.learn ?? 0) > MAX_LEARN_SKILL);
+  const kept = recipes.filter((recipe) => !isExcluded(recipe));
   const dropped = recipes.filter(isExcluded);
-  recipes.splice(0, recipes.length, ...recipes.filter((recipe) => !isExcluded(recipe)));
-  const keptItems = referencedItems(recipes);
+  const keptItems = referencedItems(kept);
   const droppedItems = [...referencedItems(dropped)].filter((id) => !keptItems.has(id)).length;
   log(`dropped ${dropped.length} recipes (no category, ${EXCLUDED_CATEGORIES.join(", ")}, or learnable above `
-    + `${MAX_LEARN_SKILL}) `
-    + `and ${droppedItems} items only they use`);
-  log(`  without a category: ${dropped.filter((recipe) => recipe.category === 0).map((recipe) => recipe.name).join(", ")
-    || "none"}`);
-  log(`  above ${MAX_LEARN_SKILL}: ${tooHigh.map((recipe) => `${recipe.name} ${recipe.learn}`).join(", ") || "none"}`);
+    + `${MAX_LEARN_SKILL}) and ${droppedItems} items only they use`);
+  log(`  without a category: ${listOrNone(dropped.filter((recipe) => recipe.category === 0)
+    .map((recipe) => recipe.name))}`);
+  log(`  above ${MAX_LEARN_SKILL}: ${listOrNone(recipes.filter(tooHigh)
+    .map((recipe) => `${recipe.name} ${recipe.learn}`))}`);
+  return kept;
+};
 
-  // Descriptions: the "Use:" text of the created item, with its $ tokens resolved. A token the resolver doesn't know
-  // fails the build: extend scripts/descriptions.mjs rather than shipping "$s1".
-  const baseRows = (rows) => rows.filter((row) => toInt(row.DifficultyID) === 0);
-  const spellText = new Map(spellRows.map((row) => [toInt(row.ID), row.Description_lang]));
+// The spell tables `resolveDescription` reads, with DESCRIPTION_PATCHES applied.
+const createSpellLookup = (tables) => {
+  const spellText = new Map(tables.Spell.map((row) => [toInt(row.ID), row.Description_lang]));
   for (const { spell, from, to } of DESCRIPTION_PATCHES) {
     const text = spellText.get(spell) ?? "";
     if (!text.includes(from)) {
@@ -475,33 +479,55 @@ const main = async () => {
     }
     spellText.set(spell, text.replaceAll(from, to));
   }
-  const radiusById = new Map(radiusRows.map((row) => [toInt(row.ID), Number(row.Radius)]));
-  const effectByKey = new Map(baseRows(effects).map((row) => [`${row.SpellID}:${row.EffectIndex}`, {
+  const radiusById = new Map(tables.SpellRadius.map((row) => [toInt(row.ID), Number(row.Radius)]));
+  const effectByKey = new Map(baseRows(tables.SpellEffect).map((row) => [`${row.SpellID}:${row.EffectIndex}`, {
     base: Number(row.EffectBasePointsF),
     variance: Number(row.Variance),
     period: toInt(row.EffectAuraPeriod),
     radius: radiusById.get(toInt(row.EffectRadiusIndex_0)) ?? 0,
   }]));
-  const durationById = new Map(durationRows.map((row) => [toInt(row.ID), toInt(row.Duration)]));
-  const durationBySpell = new Map(baseRows(spellMiscRows).map((row) => [
+  const durationById = new Map(tables.SpellDuration.map((row) => [toInt(row.ID), toInt(row.Duration)]));
+  const durationBySpell = new Map(baseRows(tables.SpellMisc).map((row) => [
     toInt(row.SpellID), durationById.get(toInt(row.DurationIndex)),
   ]));
-  const stacksBySpell = new Map(baseRows(auraOptionRows).map((row) => [toInt(row.SpellID), toInt(row.CumulativeAura)]));
-  const spells = {
+  const stacksBySpell = new Map(baseRows(tables.SpellAuraOptions)
+    .map((row) => [toInt(row.SpellID), toInt(row.CumulativeAura)]));
+  return {
     description: (id) => spellText.get(id),
     effect: (id, index) => effectByKey.get(`${id}:${index}`),
     duration: (id) => durationBySpell.get(id),
     stacks: (id) => stacksBySpell.get(id),
   };
-  const useSpellsByItem = new Map();
-  for (const link of itemEffectLinks) {
-    const effect = itemEffectById.get(toInt(link.ItemEffectID));
-    if (effect && effect.trigger === TRIGGER_USE) {
-      const item = toInt(link.ItemID);
-      useSpellsByItem.set(item, [...(useSpellsByItem.get(item) ?? []), effect.spell]);
+};
+
+// Gear has Item.IconFileDataID 0: its icon is the default icon of its first (lowest id, base modifier) appearance.
+const gearIcons = (tables) => {
+  const appearanceIconById = new Map(tables.ItemAppearance.map((row) => [row.ID, toInt(row.DefaultIconFileDataID)]));
+  const iconByItem = new Map();
+  for (const link of tables.ItemModifiedAppearance.filter((row) => toInt(row.ItemAppearanceModifierID) === 0)
+    .sort((a, b) => toInt(a.ID) - toInt(b.ID))) {
+    const icon = appearanceIconById.get(link.ItemAppearanceID);
+    if (icon && !iconByItem.has(link.ItemID)) {
+      iconByItem.set(link.ItemID, icon);
     }
   }
-  // An item's "Use:" texts, one per use effect. Unresolved tokens fail the build once the items are built.
+  return iconByItem;
+};
+
+/**
+ * Items: only those the recipes reference, with their "Use:" texts (the $ tokens resolved; a token the resolver
+ * doesn't know fails the build: extend scripts/descriptions.mjs rather than shipping "$s1"). Also returns each
+ * item's class, and the ids named after their recipe or not named at all, for the report.
+ */
+const buildItems = (tables, recipes, icons, itemEffectById, warnings) => {
+  const spells = createSpellLookup(tables);
+  const useSpellsByItem = new Map();
+  for (const link of tables.ItemXItemEffect) {
+    const effect = itemEffectById.get(toInt(link.ItemEffectID));
+    if (effect && effect.trigger === TRIGGER_USE) {
+      appendTo(useSpellsByItem, toInt(link.ItemID), effect.spell);
+    }
+  }
   const unresolvedTokens = [];
   const useTexts = (itemId) => (useSpellsByItem.get(itemId) ?? []).map((spell) => {
     const { text, unresolved } = resolveDescription(spell, spells);
@@ -509,28 +535,9 @@ const main = async () => {
     return text;
   }).filter(Boolean);
 
-  // Items: only those the recipes reference.
-  const itemById = byId(itemRows);
-  // Gear has Item.IconFileDataID 0: its icon is the default icon of its first (lowest id, base modifier) appearance.
-  const appearanceIconById = new Map(appearances.map((row) => [row.ID, toInt(row.DefaultIconFileDataID)]));
-  const gearIconByItem = new Map();
-  for (const link of appearanceLinks.filter((row) => toInt(row.ItemAppearanceModifierID) === 0)
-    .sort((a, b) => toInt(a.ID) - toInt(b.ID))) {
-    const icon = appearanceIconById.get(link.ItemAppearanceID);
-    if (icon && !gearIconByItem.has(link.ItemID)) {
-      gearIconByItem.set(link.ItemID, icon);
-    }
-  }
-  const sparseById = byId(sparseRows);
-  const itemIds = new Set();
-  for (const recipe of recipes) {
-    if (recipe.item) {
-      itemIds.add(recipe.item);
-    }
-    for (const reagent of recipe.reagents) {
-      itemIds.add(reagent.item);
-    }
-  }
+  const itemById = byId(tables.Item);
+  const sparseById = byId(tables.ItemSparse);
+  const gearIconByItem = gearIcons(tables);
   // Items missing from ItemSparse have no client name: a created item falls back to its recipe's spell name.
   const recipeNameByItem = new Map();
   for (const recipe of recipes) {
@@ -538,6 +545,7 @@ const main = async () => {
       recipeNameByItem.set(recipe.item, recipe.name);
     }
   }
+  const itemIds = referencedItems(recipes);
   const items = {};
   const classes = new Map();
   const nameFromRecipe = [];
@@ -549,8 +557,7 @@ const main = async () => {
     if (!item) {
       warnings.push(`item ${id} missing from Item`);
     }
-    const iconFile = toInt(item?.IconFileDataID) || gearIconByItem.get(String(id)) || 0;
-    const icon = icons.get(iconFile) ?? null;
+    const icon = icons.get(toInt(item?.IconFileDataID) || gearIconByItem.get(String(id)) || 0) ?? null;
     if (!icon) {
       withoutIcon += 1;
     }
@@ -567,15 +574,17 @@ const main = async () => {
     }
     classes.set(id, { classId: toInt(item?.ClassID), subclassId: toInt(item?.SubclassID) });
   }
-
   if (unresolvedTokens.length > 0) {
     throw new Error(`unresolved description tokens:\n  ${unresolvedTokens.join("\n  ")}`);
   }
+  return { items, itemIds, classes, nameFromRecipe, unnamed, withoutIcon };
+};
 
-  // Gatherables per profession.
+// Hand-written gatherables classified with the rest. An id the client doesn't know is a typo: fail. One that no kept
+// recipe uses is left out of the data and returned for the report.
+const readGatherables = (itemById, itemIds, classes, recipes) => {
   const allowLists = { fishing: FISHING_ITEMS, herbalism: HERBALISM_ITEMS };
   const gatherables = classifyGatherables(classes, recipes, allowLists);
-  // An id the client doesn't know is a typo: fail. One that no kept recipe uses is left out of the data and reported.
   const unusedAllowed = [];
   for (const id of Object.values(allowLists).flat()) {
     if (!itemById.has(String(id))) {
@@ -585,23 +594,22 @@ const main = async () => {
       unusedAllowed.push(id);
     }
   }
+  return { gatherables, unusedAllowed };
+};
 
-  // Categories per profession, in game order. Category 0 means the ability has none.
-  const output = professions.map((profession) => {
-    const used = new Set(recipes.filter((recipe) => recipe.profession === profession.key)
-      .map((recipe) => recipe.category));
-    const categories = [...used].map((id) => {
-      const row = categoryById.get(String(id));
-      return { id, name: row?.Name_lang || "Other", order: toInt(row?.OrderIndex) };
-    }).sort((a, b) => a.order - b.order || a.id - b.id).map(({ id, name }) => ({ id, name }));
-    return { ...profession, categories, gatherables: gatherables[profession.key] ?? [] };
-  });
+// The professions as the app reads them: the categories their recipes use, in game order, and their gatherables.
+const professionOutput = (professions, recipes, categoryById, gatherables) => professions.map((profession) => {
+  const used = new Set(recipes.filter((recipe) => recipe.profession === profession.key)
+    .map((recipe) => recipe.category));
+  const categories = [...used].map((id) => {
+    const row = categoryById.get(String(id));
+    return { id, name: row?.Name_lang || "Other", order: toInt(row?.OrderIndex) };
+  }).sort((a, b) => a.order - b.order || a.id - b.id).map(({ id, name }) => ({ id, name }));
+  return { ...profession, categories, gatherables: gatherables[profession.key] ?? [] };
+});
 
-  // Known locations: zone names per Herbalism gatherable, most spawns first.
-  const [areaRows, objectText, deltaText] = await Promise.all([
-    downloadTable("AreaTable"), ...QUESTIE_FILES.map(downloadQuestieFile),
-  ]);
-  const locatable = new Set(LOCATION_PROFESSIONS.flatMap((key) => gatherables[key] ?? []));
+// Herb locations: zone names per Herbalism gatherable, most spawns first, through LOCATION_RULES.
+const locateHerbs = (itemById, locatable, questieObjects, areaNames, unnamedZones) => {
   // A rule item the client doesn't know is a typo: fail. One that is no kept Herbalism gatherable is left out.
   const skippedRuleItems = new Set();
   const rules = LOCATION_RULES.map((rule) => ({
@@ -616,21 +624,22 @@ const main = async () => {
       return locatable.has(item);
     }),
   })).filter((rule) => rule.items.length > 0);
-  const areaNames = new Map(areaRows.map((row) => [toInt(row.ID), row.AreaName_lang]));
-  const questieObjects = readQuestieObjects(objectText, deltaText);
   const { located, unmatched } = locateItems(questieObjects, rules);
-  const locationItems = {};
-  const unnamedZones = new Set();
+  const zonesByItem = {};
   for (const item of [...located.keys()].sort((a, b) => a - b)) {
     const { names, unnamed } = zoneNamesByCount(located.get(item), areaNames);
     unnamed.forEach((zone) => unnamedZones.add(zone));
     if (names.length > 0) {
-      locationItems[item] = names;
+      zonesByItem[item] = names;
     }
   }
+  return { zonesByItem, skippedRuleItems, unmatched };
+};
 
-  // Fish: the zones whose fishing loot has them (CMaNGOS, by AreaTable id, subzones counted as their zone), then the
-  // zones where a pool that yields them spawns (pool loot from CMaNGOS, pool spawns from QuestieDB's Forever data).
+// Fish locations: the zones whose fishing loot has them (CMaNGOS, by AreaTable id, subzones counted as their zone),
+// then the zones where a pool that yields them spawns (pool loot from CMaNGOS, pool spawns from QuestieDB).
+const locateFish = (fish, classicDb, areaRows, questieObjects, unnamedZones) => {
+  const areaNames = new Map(areaRows.map((row) => [toInt(row.ID), row.AreaName_lang]));
   const parentById = new Map(areaRows.map((row) => [toInt(row.ID), toInt(row.ParentAreaID)]));
   const zoneOf = (area) => {
     let zone = area;
@@ -639,11 +648,11 @@ const main = async () => {
     }
     return zone;
   };
-  const fish = gatherables.fishing ?? [];
   const references = readSqlTable(classicDb, "reference_loot_template");
   const fishedIn = fishingAreas(readSqlTable(classicDb, "fishing_loot_template"), references, fish);
   const yields = poolYields(readSqlTable(classicDb, "gameobject_template"),
     readSqlTable(classicDb, "gameobject_loot_template"), references, fish);
+  const zonesByItem = {};
   const fishWithout = [];
   for (const item of fish) {
     const chances = new Map();
@@ -663,7 +672,7 @@ const main = async () => {
       for (const [zone, count] of questieObjects.get(pool)?.zones ?? []) {
         const name = areaNames.get(zoneOf(zone));
         if (name) {
-          spawns.set(name, (spawns.get(name) ?? 0) + count);
+          addTo(spawns, name, count);
         } else {
           unnamedZones.add(zone);
         }
@@ -671,33 +680,27 @@ const main = async () => {
     }
     const names = orderFishZones(chances, spawns);
     if (names.length > 0) {
-      locationItems[item] = names;
+      zonesByItem[item] = names;
     } else {
       fishWithout.push(item);
     }
   }
+  return { zonesByItem, fishWithout };
+};
 
-  const locations = {
-    source: `QuestieDB ${QUESTIE_COMMIT} (GPLv3, https://github.com/Questie/QuestieDB): `
-      + "only the zones each node and fishing pool spawns in, no files or coordinates. "
-      + `CMaNGOS classic-db ${CLASSICDB_COMMIT} (GPLv3, https://github.com/cmangos/classic-db): `
-      + "only the zones each fish is caught in and the fish each pool yields, no files or rows",
-    build: BUILD,
-    items: locationItems,
-  };
-
+const writeData = async (files) => {
   await mkdir(OUT_DIR, { recursive: true });
-  const files = {
-    "locations.json": locations,
-    "professions.json": output,
-    "recipes.json": recipes,
-    "items.json": items,
-  };
   for (const [name, data] of Object.entries(files)) {
     await writeFile(path.join(OUT_DIR, name), JSON.stringify(data));
   }
+};
 
-  // Report.
+// The report `docs/DATA.md` explains, line by line.
+const report = ({
+  output, recipes, items, itemIds, classes, itemById, sparseById, gatherables, locatable, locationItems, herbs,
+  fishWithout, unnamedZones, learnOrigin, unusedAllowed, nameFromRecipe, unnamed, withoutIcon, warnings,
+}) => {
+  const named = (ids) => listOrNone(ids.map((id) => `${id} ${items[id].name}`));
   log(`\nbuild ${BUILD}, listfile ${LISTFILE_TAG}`);
   log("\nprofession       recipes  gatherables");
   for (const profession of output) {
@@ -708,39 +711,35 @@ const main = async () => {
   const herbsLocated = [...locatable].filter((id) => locationItems[id]).length;
   log(`\nlocations for ${herbsLocated} of ${locatable.size} Herbalism gatherables`);
   for (const key of LOCATION_PROFESSIONS) {
-    const lacking = (gatherables[key] ?? []).filter((id) => !locationItems[id]);
-    log(`  ${key} without locations: ${lacking.map((id) => `${id} ${items[id].name}`).join(", ") || "none"}`);
+    log(`  ${key} without locations: ${named((gatherables[key] ?? []).filter((id) => !locationItems[id]))}`);
   }
-  log(`  rule items that are no kept Herbalism gatherable, left out: ${[...skippedRuleItems].join(", ") || "none"}`);
-  const unmatchedNames = unmatched.map((rule) => rule.node ?? rule.ids.join("/")).join(", ");
-  log(`\nfish without locations: ${fishWithout.map((id) => `${id} ${items[id].name}`).join(", ") || "none"}`);
-  log(`  rules matching no object with spawns: ${unmatchedNames || "none"}`);
-  log(`  spawn zones without an AreaTable name, skipped: ${[...unnamedZones].join(", ") || "none"}`);
+  log(`  rule items that are no kept Herbalism gatherable, left out: ${listOrNone([...herbs.skippedRuleItems])}`);
+  log(`\nfish without locations: ${named(fishWithout)}`);
+  log(`  rules matching no object with spawns: ${listOrNone(herbs.unmatched
+    .map((rule) => rule.node ?? rule.ids.join("/")))}`);
+  log(`  spawn zones without an AreaTable name, skipped: ${listOrNone([...unnamedZones])}`);
+
   const fromItems = recipes.filter((recipe) => recipe.source === "item").length;
   const unknownLearn = recipes.filter((recipe) => recipe.learn === undefined);
-  const fromOrigin = (origin) => recipes
-    .filter((recipe) => learnOrigin.get(`${recipe.profession}:${recipe.id}`) === origin).length;
+  const fromOrigin = (origin) => recipes.filter((recipe) => learnOrigin.get(recipeKeyOf(recipe)) === origin).length;
   log(`\nlearnable level from a recipe item ${fromOrigin("item")}, a trainer ${fromOrigin("trainer")}, `
     + `the profession ${fromOrigin("profession")}, by hand ${fromOrigin("hand")}, unknown ${unknownLearn.length}:`);
-  log(`  ${unknownLearn.map((recipe) => `${recipe.profession}:${recipe.name}`).join(", ") || "none"}`);
+  log(`  ${listOrNone(unknownLearn.map((recipe) => `${recipe.profession}:${recipe.name}`))}`);
   log(`\nrecipes taught by an item ${fromItems}, by a trainer or with the profession ${recipes.length - fromItems}`);
   const undescribed = recipes.filter((recipe) => !items[recipe.item]?.use).map((recipe) => recipe.name);
   log(`\nitems with a "Use:" text ${Object.values(items).filter((item) => item.use).length} of ${itemIds.size}; `
     + `recipes whose item has none: ${undescribed.length}`);
-  log(`  ${undescribed.join(", ") || "none"}`);
-  log(`\nallow-listed items no kept recipe uses, left out: ${unusedAllowed.join(", ") || "none"}`);
+  log(`  ${listOrNone(undescribed)}`);
+  log(`\nallow-listed items no kept recipe uses, left out: ${listOrNone(unusedAllowed)}`);
   log(`\nrecipes ${recipes.length}, items ${itemIds.size}, items without icon ${withoutIcon}`);
 
   // Validation of the gatherable assumptions against the live data.
   const created = new Set(recipes.filter((recipe) => recipe.item).map((recipe) => recipe.item));
-  const gathered = new Map();
-  for (const [profession, ids] of Object.entries(gatherables)) {
-    for (const id of ids) {
-      gathered.set(id, profession);
-    }
-  }
+  const gathered = new Map(Object.entries(gatherables)
+    .flatMap(([profession, ids]) => ids.map((id) => [id, profession])));
+  const uncrafted = [...itemIds].filter((itemId) => !created.has(itemId));
   log("\nreagents whose bag family disagrees with their assigned gatherer:");
-  for (const id of [...itemIds].filter((itemId) => !created.has(itemId))) {
+  for (const id of uncrafted) {
     const family = toInt(sparseById.get(String(id))?.BagFamily);
     for (const check of BAG_FAMILY_CHECKS) {
       if ((family & check.bit) && gathered.get(id) !== check.profession) {
@@ -751,14 +750,14 @@ const main = async () => {
     }
   }
   log("\nuncrafted reagents with pet food type fish (ItemPetFoodID 2), class 7 subclass 8 only:");
-  for (const id of [...itemIds].filter((itemId) => !created.has(itemId))) {
+  for (const id of uncrafted) {
     const { classId, subclassId } = classes.get(id);
     if (classId === 7 && subclassId === 8 && toInt(itemById.get(String(id))?.ItemPetFoodID) === FISH_PET_FOOD) {
       log(`  ${id} ${items[id].name}`);
     }
   }
   log("\nuncrafted reagents assigned to no gatherer, class 7, 12 or 15:");
-  for (const id of [...itemIds].filter((itemId) => !created.has(itemId) && !gathered.has(itemId))) {
+  for (const id of uncrafted.filter((itemId) => !gathered.has(itemId))) {
     const { classId, subclassId } = classes.get(id);
     if (classId === 7 || classId === 15 || classId === 12) {
       log(`  ${id} ${items[id].name} (${classId}/${subclassId})`);
@@ -771,6 +770,55 @@ const main = async () => {
   for (const warning of warnings) {
     log(`  ${warning}`);
   }
+};
+
+const main = async () => {
+  const tables = Object.fromEntries(await Promise.all(TABLES.map(async (table) => [
+    table, await downloadTable(table),
+  ])));
+  const [icons, classicDb, eraEffects, ...questieTexts] = await Promise.all([
+    loadIconNames(), loadClassicDb(), downloadTable("SpellEffect", ERA_BUILD),
+    ...QUESTIE_FILES.map(downloadQuestieFile),
+  ]);
+  const warnings = [];
+  const professions = readProfessions(tables.SkillLine);
+  const categoryById = byId(tables.TradeSkillCategory);
+  const learning = createLearning(tables, classicDb, eraEffects, professions);
+  const recipes = dropExcluded(buildRecipes(tables, professions, learning, warnings), categoryById);
+  const { items, itemIds, classes, nameFromRecipe, unnamed, withoutIcon } = buildItems(
+    tables, recipes, icons, learning.itemEffectById, warnings,
+  );
+  const itemById = byId(tables.Item);
+  const { gatherables, unusedAllowed } = readGatherables(itemById, itemIds, classes, recipes);
+  const output = professionOutput(professions, recipes, categoryById, gatherables);
+
+  const areaNames = new Map(tables.AreaTable.map((row) => [toInt(row.ID), row.AreaName_lang]));
+  const questieObjects = readQuestieObjects(...questieTexts);
+  const locatable = new Set(LOCATION_PROFESSIONS.flatMap((key) => gatherables[key] ?? []));
+  const unnamedZones = new Set();
+  const herbs = locateHerbs(itemById, locatable, questieObjects, areaNames, unnamedZones);
+  const fish = locateFish(gatherables.fishing ?? [], classicDb, tables.AreaTable, questieObjects, unnamedZones);
+  const locationItems = { ...herbs.zonesByItem, ...fish.zonesByItem };
+
+  await writeData({
+    "locations.json": {
+      source: `QuestieDB ${QUESTIE_COMMIT} (GPLv3, https://github.com/Questie/QuestieDB): `
+        + "only the zones each node and fishing pool spawns in, no files or coordinates. "
+        + `CMaNGOS classic-db ${CLASSICDB_COMMIT} (GPLv3, https://github.com/cmangos/classic-db): `
+        + "only the zones each fish is caught in and the fish each pool yields, no files or rows",
+      build: BUILD,
+      items: locationItems,
+    },
+    "professions.json": output,
+    "recipes.json": recipes,
+    "items.json": items,
+  });
+
+  report({
+    output, recipes, items, itemIds, classes, itemById, sparseById: byId(tables.ItemSparse), gatherables, locatable,
+    locationItems, herbs, fishWithout: fish.fishWithout, unnamedZones, learnOrigin: learning.origin, unusedAllowed,
+    nameFromRecipe, unnamed, withoutIcon, warnings,
+  });
 };
 
 main().catch((error) => {

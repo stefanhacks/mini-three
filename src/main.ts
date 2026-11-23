@@ -6,14 +6,14 @@ import { fromSaved, loadSaved, persist } from "./app/storage";
 import { createStore } from "./app/store";
 import { professions } from "./data";
 import { PALETTE, createArtKit, createBackdrop, loadFonts } from "./ui/art";
+import { isTextField } from "./ui/dom";
 import { type LayoutMode, desktopScale, layoutMode, needsUpright } from "./ui/layout";
-import { createUprightNotice } from "./ui/uprightNotice";
 import { selectionKey } from "./ui/popup/detail";
+import { MOBILE_BUTTON_HEIGHT, TABS_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH } from "./ui/popup/geometry";
 import { createNotesField } from "./ui/popup/notesField";
-import {
-  MOBILE_BUTTON_HEIGHT, type Popup, TABS_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, createPopup,
-} from "./ui/popup/popup";
+import { type Popup, createPopup } from "./ui/popup/popup";
 import { createSearchField } from "./ui/popup/searchField";
+import { createUprightNotice } from "./ui/uprightNotice";
 
 const MAX_RESOLUTION = 2;
 // Room for the portrait medallion that pokes out of the top-left corner.
@@ -98,8 +98,7 @@ const build = (width: number, height: number) => {
 };
 
 /** A DOM field has focus: on phones that is the on-screen keyboard being open. */
-const typing = (): boolean => document.activeElement === notesField.element
-  || document.activeElement === searchField.element;
+const typing = (): boolean => isTextField(document.activeElement);
 
 // A sideways phone is too short for the frame: cover it with a request to turn the phone upright. The app keeps
 // running underneath, so turning back restores everything as it was.
@@ -119,9 +118,10 @@ const layout = (width: number, height: number) => {
   // Some phones shrink the window for the on-screen keyboard instead of only the visual viewport. While a note
   // is being typed (or a search), a height-only change is the keyboard: keep the frame and let the keyboard handling
   // lift it.
-  const keyboard = next === "mobile" && mode === "mobile" && width === built.width && typing();
-  if (next !== mode || (next === "mobile" && !keyboard && (width !== built.width || height !== built.height))) {
-    const modeChanged = next !== mode;
+  const modeChanged = next !== mode;
+  const keyboard = !modeChanged && next === "mobile" && width === built.width && typing();
+  const resized = width !== built.width || height !== built.height;
+  if (modeChanged || (next === "mobile" && !keyboard && resized)) {
     mode = next;
     build(width, height);
     if (modeChanged) {
@@ -130,14 +130,13 @@ const layout = (width: number, height: number) => {
   }
   place(width, height);
 };
+const relayout = () => layout(app.screen.width, app.screen.height);
 // Before the first layout: a mode change during it reports to the back-gesture history.
 const backHistory = syncBackHistory(store, () => mode === "mobile");
 app.renderer.on("resize", layout);
-layout(app.screen.width, app.screen.height);
+relayout();
 // A resize skipped while typing is applied once the field lets go.
-[notesField.element, searchField.element].forEach((field) => {
-  field.addEventListener("blur", () => layout(app.screen.width, app.screen.height));
-});
+[notesField.element, searchField.element].forEach((field) => field.addEventListener("blur", relayout));
 
 // Clicking outside the window, or pressing B, cycles the background scene.
 app.stage.eventMode = "static";
@@ -155,8 +154,7 @@ app.stage.on("pointertap", (event) => {
   }
 });
 window.addEventListener("keydown", (event) => {
-  const inField = event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement;
-  if (event.key.toLowerCase() === "b" && !inField) {
+  if (event.key.toLowerCase() === "b" && !isTextField(event.target)) {
     backdrop.next();
   } else if (event.key === "Escape" && !event.isComposing && !(event.target instanceof HTMLTextAreaElement)
     && store.get().search !== null) {

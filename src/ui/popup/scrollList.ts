@@ -1,11 +1,9 @@
-import {
-  Container, type FederatedPointerEvent, type FederatedWheelEvent, Graphics, Rectangle, type TextStyle, type Ticker,
-} from "pixi.js";
+import { Container, type FederatedPointerEvent, Graphics, Rectangle, type TextStyle, type Ticker } from "pixi.js";
 import { type ArtKit, PALETTE, TEXT_STYLES, createNineSlice, createStoneOverlay } from "../art";
-import { at, iconSprite, label, piece, qualityColor, tinted } from "../widgets";
-import { DESKTOP_ROWS, type ListRow, type RowMetrics, rowHeight } from "./rows";
 import { itemOf } from "../../data/model";
-import { createDragScroll } from "./dragScroll";
+import { at, iconSprite, label, piece, qualityColor, tappable, tinted } from "../widgets";
+import { attachScrollInput, createDragScroll } from "./dragScroll";
+import { DESKTOP_ROWS, type ListRow, type RowMetrics, rowHeight } from "./rows";
 
 export interface ScrollList {
   view: Container;
@@ -29,7 +27,6 @@ interface Handlers {
 
 const PAD = 6;
 const SCROLLBAR = 17;
-const WHEEL_LINE = 20;
 const MIN_THUMB = 24;
 const ITEM_TEXT_X = 12;
 const RECIPE_TEXT_X = 24;
@@ -89,7 +86,8 @@ export const createScrollList = (
     const header = createNineSlice(kit.pieces.header, rowWidth, headerH);
     const headerHover = createNineSlice(kit.pieces.headerHover, rowWidth, headerH);
     const headerText = label("", TEXT_STYLES.header, 8, headerH / 2);
-    const toggle = iconSprite(kit.icons.minus, rowWidth - 10, headerH / 2, PALETTE.text.header);
+    // Centred in a header-tall square at the right end, so its right gap matches the top and bottom ones.
+    const toggle = iconSprite(kit.icons.minus, rowWidth - headerH / 2, headerH / 2, PALETTE.text.header);
     const hover = createNineSlice(kit.pieces.rowHover, rowWidth, rowH - 1);
     const selected = createNineSlice(kit.pieces.rowSelected, rowWidth, rowH - 1);
     const text = label("", TEXT_STYLES.row, 12, rowH / 2);
@@ -97,8 +95,6 @@ export const createScrollList = (
     // Known recipes get a check in a gutter left of the name; unknown ones leave it empty.
     const known = iconSprite(kit.icons.check, 13, rowH / 2, PALETTE.gold.light, 0.8);
     holder.addChild(header, headerHover, headerText, toggle, hover, selected, text, side, known);
-    holder.eventMode = "static";
-    holder.cursor = "pointer";
 
     const rowView: RowView = {
       view: holder,
@@ -148,7 +144,7 @@ export const createScrollList = (
       headerHover.visible = false;
       hover.visible = false;
     });
-    holder.on("pointertap", () => {
+    tappable(holder, () => {
       const row = rowView.row;
       if (!row || drag.dragged()) {
         return;
@@ -176,13 +172,18 @@ export const createScrollList = (
   view.addChild(up, down, track, thumb);
 
   const maxScroll = () => Math.max(0, total - viewport);
+  /** Index of the row at the top of the view. */
+  const firstShown = (): number => {
+    let index = 0;
+    while (index < rows.length - 1 && tops[index + 1] <= scroll) {
+      index += 1;
+    }
+    return index;
+  };
 
   const render = () => {
     scroll = Math.min(Math.max(0, scroll), maxScroll());
-    let first = 0;
-    while (first < rows.length - 1 && tops[first + 1] <= scroll) {
-      first += 1;
-    }
+    const first = firstShown();
     pool.forEach((rowView, i) => {
       const index = first + i;
       const row = index < rows.length && tops[index] - scroll < viewport ? rows[index] : null;
@@ -207,17 +208,6 @@ export const createScrollList = (
     render();
   };
 
-  // Wheel and drag on the content area.
-  const area = new Container();
-  area.hitArea = new Rectangle(0, 0, width - SCROLLBAR, height);
-  area.eventMode = "static";
-  view.addChildAt(area, 2);
-  view.eventMode = "static";
-  view.on("wheel", (event: FederatedWheelEvent) => {
-    drag.stop();
-    scrollBy(event.deltaMode === 1 ? event.deltaY * WHEEL_LINE : event.deltaY);
-  });
-
   const drag = createDragScroll(view, ticker, {
     get: () => scroll,
     set: (value) => {
@@ -225,22 +215,15 @@ export const createScrollList = (
       render();
     },
   });
-  content.eventMode = "static";
-  area.on("pointerdown", (event: FederatedPointerEvent) => drag.press(event));
-  content.on("pointerdown", (event: FederatedPointerEvent) => drag.press(event));
+  attachScrollInput(view, content, new Rectangle(0, 0, width - SCROLLBAR, height), drag, scrollBy);
   thumb.eventMode = "static";
   thumb.cursor = "grab";
   thumb.on("pointerdown", (event: FederatedPointerEvent) => {
     const free = trackHeight - thumb.height;
     drag.press(event, free > 0 ? maxScroll() / free : 0);
   });
-
-  [[up, -3], [down, 3]].forEach(([arrow, rowsBy]) => {
-    const sprite = arrow as Container;
-    sprite.eventMode = "static";
-    sprite.cursor = "pointer";
-    sprite.on("pointertap", () => scrollBy((rowsBy as number) * rowH));
-  });
+  tappable(up, () => scrollBy(-3 * rowH));
+  tappable(down, () => scrollBy(3 * rowH));
 
   return {
     view,
@@ -272,10 +255,7 @@ export const createScrollList = (
       render();
     },
     getPosition: () => {
-      let index = 0;
-      while (index < rows.length - 1 && tops[index + 1] <= scroll) {
-        index += 1;
-      }
+      const index = firstShown();
       const height = rows.length > 0 ? rowHeight(rows[index], rows[index + 1], metrics) : 1;
       return index + (scroll - (tops[index] ?? 0)) / height;
     },

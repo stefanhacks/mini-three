@@ -16,6 +16,11 @@ export const PALETTE = {
     base: 0x221a11,
     raised: 0x2e2216,
   },
+  /** Rims of inactive secondary tabs and disabled buttons. */
+  grey: {
+    dark: 0x2e2a26,
+    light: 0x5e5850,
+  },
   bronze: {
     dark: 0x3b2a12,
     base: 0x6e5326,
