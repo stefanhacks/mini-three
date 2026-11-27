@@ -24,7 +24,7 @@ WoW: Hantō is a browser look-alike of the World of Warcraft: Forever profession
 - **Background.** Our own procedural scenes, rendered once and blurred.
 - **Font.** Marcellus (SIL OFL), self-hosted, as a free stand-in for Friz Quadrata.
 - **Text input.** DOM `<textarea>` (notes) and `<input>` (search) placed over the canvas: native typing, IME, mobile keyboards, accessibility.
-- **Owner app.** Installable from Chrome as the owner's editor: `public/manifest.webmanifest` (`start_url` and `id` `/?zu`, standalone, portrait) is linked only when the address has `?zu`, so visitors are never offered an install. No service worker: every launch loads fresh. Its icons are the one place Blizzard art is stored: Wowhead's Silverleaf icon in the portrait medallion with a green glow, rendered once to PNG.
+- **Owner app.** Installable from Chrome as the owner's editor: `public/manifest.webmanifest` (`start_url` and `id` `/?zu`, standalone, portrait) is linked only when the address has `?zu`, so visitors are never offered an install. No service worker: every launch loads fresh. Its icons are the one place Blizzard art is stored: Wowhead's Silverleaf icon on its own, scaled up once to PNG.
 - **Dependencies.** `pixi.js` is the only runtime dependency. Animation uses Pixi's ticker, scrolling is custom, CSV, Lua and SQL parsing are hand-written.
 - **Saved data.** The `hanto:v1` format is unchanged by the specialisation: the old profession choice is ignored, and notes and known flags for the five professions carry over.
 
