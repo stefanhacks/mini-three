@@ -38,7 +38,7 @@ Notes and Known flags become the owner's, shared with every visitor and editable
   - no empty notes stored.
 
   They move into a pure module that both import. A bad write can't reach visitors.
-- **What stays per browser.** The open tab, collapsed sections, Known only and the key stay in `localStorage` (`hanto:v1`). Notes and Known flags move to the server.
+- **What stays per browser.** The open tab, collapsed sections, Known only and the key stay in `localStorage` (`zus-wow:v1`). Notes and Known flags move to the server.
 - **Saving.**
   - Optimistic: the view updates at once.
   - A failed save reverts the entry and shows a short error in the detail pane.

@@ -5,7 +5,7 @@ import { NOTES_URL } from "./shared";
 import type { Store } from "./store";
 
 export const SESSION_URL = "/api/session";
-const KEY_STORAGE = "hanto:key";
+const KEY_STORAGE = "zus-wow:key";
 
 export type LoginResult = "ok" | "wrong" | "unreachable";
 

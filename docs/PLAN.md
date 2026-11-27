@@ -10,7 +10,7 @@ WoW: Hantō is a browser look-alike of the World of Warcraft: Forever profession
   - Recipes: name, `learn X · yellow Y, grey Z`, the created item's "Use:" text, notes, where it is learned from, reagents.
   - Gatherables and other items: their "Use:" text when they have one (edible fish), where they are found (zones), the recipes that use them, notes.
 - **Search.** Matches names, a recipe's reagents, and a gatherable's zones ("Mulgore" lists Peacebloom, "Barrens" on Fishing lists Deviate Fish).
-- **Known recipes and notes** are saved in `localStorage` (`hanto:v1`): one browser, one device. A "Known only" filter narrows the list.
+- **Known recipes and notes** are saved in `localStorage` (`zus-wow:v1`): one browser, one device. A "Known only" filter narrows the list.
 - **Not shown:** recipes learnable above skill 300 (the game doesn't support them yet) and Season of Discovery recipes.
 - Desktop shows list and detail side by side with the tabs on the right. Mobile shows the list full screen with a tab strip, and the detail pane slides in over it.
 - A blurred background with a few selectable scenes.
@@ -26,7 +26,7 @@ WoW: Hantō is a browser look-alike of the World of Warcraft: Forever profession
 - **Text input.** DOM `<textarea>` (notes) and `<input>` (search) placed over the canvas: native typing, IME, mobile keyboards, accessibility.
 - **Owner app.** Installable from Chrome as the owner's editor: `public/manifest.webmanifest` (`start_url` and `id` `/?zu`, standalone, portrait) is linked only when the address has `?zu`, so visitors are never offered an install. No service worker: every launch loads fresh. Its icon, also the browser tab's for everyone, is a gold leaf on ink, drawn in `public/icons/icon.svg`; the PNGs the manifest lists are rendered from it (192, 512 and maskable 512) and must be rendered again after editing it.
 - **Dependencies.** `pixi.js` is the only runtime dependency. Animation uses Pixi's ticker, scrolling is custom, CSV, Lua and SQL parsing are hand-written.
-- **Saved data.** The `hanto:v1` format is unchanged by the specialisation: the old profession choice is ignored, and notes and known flags for the five professions carry over.
+- **Saved data.** The `zus-wow:v1` format is unchanged by the specialisation: the old profession choice is ignored, and notes and known flags for the five professions carry over.
 
 ## History
 
