@@ -4,7 +4,7 @@ import { DEFAULT_BACKGROUND } from "../ui/art/backgroundNames";
 import { isRecord, strings } from "./entries";
 import type { AppState, Store } from "./store";
 
-export const STORAGE_KEY = "hanto:v1";
+export const STORAGE_KEY = "zus-wow:v1";
 const VERSION = 1;
 const SAVE_DELAY = 300;
 
