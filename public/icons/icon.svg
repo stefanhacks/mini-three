@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Source of the app icons (icon-192.png, icon-512.png, icon-maskable-512.png): a gold leaf on ink, kept inside
+       the maskable safe zone (radius 205) so a round mask doesn't cut it. -->
+  <defs>
+    <linearGradient id="gold" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#c29a48"/>
+      <stop offset="1" stop-color="#fff0b0"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="#050403"/>
+  <g transform="translate(256 256) rotate(40) scale(1.12)">
+    <path d="M0,165 C110,110 132,-50 0,-175 C-132,-50 -110,110 0,165 Z" fill="url(#gold)"/>
+    <path d="M0,190 L0,-140" stroke="#050403" stroke-width="14" stroke-linecap="round"/>
+  </g>
+</svg>
