@@ -30,7 +30,7 @@ const server = (initial: SharedEntries = { notes: {}, known: [] }) => {
   };
   const fetchJson = ((url: string, init?: RequestInit) => {
     return state.down ? Promise.reject(new TypeError("offline"))
-      : handleNotes(new Request(`https://zus-hanto.netlify.app${url}`, init), store, state.key);
+      : handleNotes(new Request(`https://zus-hantou.netlify.app${url}`, init), store, state.key);
   }) as typeof fetch;
   return { fetchJson, state, entries: () => entries };
 };

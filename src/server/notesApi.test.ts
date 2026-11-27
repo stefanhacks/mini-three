@@ -33,7 +33,7 @@ const memoryStore = (initial: SharedEntries | null = null, racers = 0) => {
 };
 
 const request = (method: string, path: string, { body, key }: { body?: unknown; key?: string } = {}) =>
-  new Request(`https://zus-hanto.netlify.app${path}`, {
+  new Request(`https://zus-hantou.netlify.app${path}`, {
     method,
     headers: key ? { authorization: `Bearer ${key}` } : {},
     body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body),
