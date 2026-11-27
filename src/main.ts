@@ -21,10 +21,17 @@ import { createUprightNotice } from "./ui/uprightNotice";
 const MAX_RESOLUTION = 2;
 // Room for the portrait medallion that pokes out of the top-left corner.
 const CORNER = 16;
-/** Space around the phone frame, about the height of its buttons, so it reads as a window rather than the page. */
-const MOBILE_MARGIN = MOBILE_BUTTON_HEIGHT;
-/** Top and bottom get twice the side margin. */
-const MOBILE_MARGIN_Y = MOBILE_MARGIN * 2;
+/** The installed owner app has the screen to itself, so its frame fills it. */
+const installed = window.matchMedia("(display-mode: standalone)").matches;
+/** In the installed app, just room for the medallion poking 6 px out of the frame's top-left corner. */
+const APP_MARGIN = 8;
+/**
+ * Space around the phone frame, about the height of its buttons, so it reads as a window rather than the page.
+ * The installed app keeps only `APP_MARGIN`.
+ */
+const MOBILE_MARGIN = installed ? APP_MARGIN : MOBILE_BUTTON_HEIGHT;
+/** Top and bottom get twice the side margin in a browser. */
+const MOBILE_MARGIN_Y = installed ? APP_MARGIN : MOBILE_MARGIN * 2;
 const FOOTPRINT = { width: WINDOW_WIDTH + TABS_WIDTH + CORNER, height: WINDOW_HEIGHT + CORNER };
 
 /** `?zu` (any value) in the address shows the owner's lock. */
