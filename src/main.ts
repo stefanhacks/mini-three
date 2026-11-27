@@ -8,7 +8,7 @@ import { fromSaved, loadSaved, persist } from "./app/storage";
 import { createStore } from "./app/store";
 import { professions } from "./data";
 import { PALETTE, createArtKit, createBackdrop, loadFonts, nextBackground } from "./ui/art";
-import { isTextField } from "./ui/dom";
+import { hex, isTextField } from "./ui/dom";
 import { type LayoutMode, desktopScale, layoutMode, needsUpright } from "./ui/layout";
 import { selectionKey } from "./ui/popup/detail";
 import { MOBILE_BUTTON_HEIGHT, TABS_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH } from "./ui/popup/geometry";
@@ -21,11 +21,32 @@ import { createUprightNotice } from "./ui/uprightNotice";
 const MAX_RESOLUTION = 2;
 // Room for the portrait medallion that pokes out of the top-left corner.
 const CORNER = 16;
-/** Space around the phone frame, about the height of its buttons, so it reads as a window rather than the page. */
-const MOBILE_MARGIN = MOBILE_BUTTON_HEIGHT;
-/** Top and bottom get twice the side margin. */
-const MOBILE_MARGIN_Y = MOBILE_MARGIN * 2;
+/** The installed owner app has the screen to itself, so its frame fills it. */
+const installed = window.matchMedia("(display-mode: standalone)").matches;
+/** In the installed app, just room for the medallion poking 6 px out of the frame's top-left corner. */
+const APP_MARGIN = 8;
+/**
+ * Space around the phone frame, about the height of its buttons, so it reads as a window rather than the page.
+ * The installed app keeps only `APP_MARGIN`.
+ */
+const MOBILE_MARGIN = installed ? APP_MARGIN : MOBILE_BUTTON_HEIGHT;
+/** Top and bottom get twice the side margin in a browser. */
+const MOBILE_MARGIN_Y = installed ? APP_MARGIN : MOBILE_MARGIN * 2;
 const FOOTPRINT = { width: WINDOW_WIDTH + TABS_WIDTH + CORNER, height: WINDOW_HEIGHT + CORNER };
+
+/** `?zu` (any value) in the address shows the owner's lock. */
+const showLock = new URLSearchParams(window.location.search).has("zu");
+// The installable app is the owner's editor: only the `?zu` address links its manifest, so visitors are never
+// offered an install. Linked before anything is awaited, so the browser sees it early.
+if (showLock) {
+  const manifest = document.createElement("link");
+  manifest.rel = "manifest";
+  manifest.href = `${import.meta.env.BASE_URL}manifest.webmanifest`;
+  const theme = document.createElement("meta");
+  theme.name = "theme-color";
+  theme.content = hex(PALETTE.ink);
+  document.head.append(manifest, theme);
+}
 
 const app = new Application();
 
@@ -64,8 +85,6 @@ persist(store);
 void loadShared(store);
 void owner.restore();
 const keyDialog = createKeyDialog(owner.login);
-/** `?zu` (any value) in the address shows the owner's lock. */
-const showLock = new URLSearchParams(window.location.search).has("zu");
 app.stage.addChild(backdrop.view);
 
 const notesField = createNotesField({
